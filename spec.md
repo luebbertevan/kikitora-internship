@@ -56,14 +56,16 @@ kikitora-internship/
 │
 └── src/
     ├── scripts/             # Main processing scripts
-    │   ├── create_glb_from_npz.py
-    │   └── retarget.py
-    ├── utils/               # Debugging utilities
-    │   └── debugger.py
+    │   ├── create_glb_from_npz.py    # Creates .glb from .npz (uses frame 0 FK = inconsistent, IGNORE)
+    │   └── retarget.py               # **YOUR MAIN TARGET** - fix/enhance for consistent skeleton + A-pose
+    ├── utils/               # Exploration/debug tools
+    │   ├── explore_amass_data.py     # Explore .npz file structure (M1 tool)
+    │   └── debugger.py               # Simple .npz structure debugger (has hardcoded paths)
     └── visualization/       # Visualization tools
-        ├── smplh_debugger.py
-        ├── visualize_neutral_smplh.py
-        └── visualizer.py
+        ├── visualize_frame0.py      # Visualize frame 0 pose (M1 tool)
+        ├── visualize_neutral_smplh.py # Visualize T-pose skeleton (hardcoded path)
+        ├── visualizer.py             # Full animation visualizer (hardcoded path)
+        └── smplh_debugger.py         # Debug SMPL-H model
 ```
 
 **Notes:**
@@ -334,6 +336,34 @@ CANONICAL_A_POSE_J_ABSOLUTE: NDArray[np.float64]  # 52 joint positions (fixed)
 ✅ Output compatible with existing retargeting pipeline  
 ✅ Processing time < 10 seconds per animation file  
 ✅ Documentation enables production deployment
+
+## Testing Strategy
+
+### Test Files to Create
+
+**`test_retargeting.py`** - Unit tests for retargeting functions:
+
+-   Test FK roundtrip (pose → joints → pose)
+-   Test A-pose frame 0 enforcement
+-   Test bone length consistency
+
+**`test_visualization.py`** - Visual comparison tests:
+
+-   Compare original vs. retargeted animations
+-   Verify frame 0 is A-pose
+-   Check for motion artifacts
+
+**`test_integration.py`** - End-to-end tests:
+
+-   Process sample .npz → .glb
+-   Verify output quality
+-   Check error handling
+
+### Visual Tests
+
+-   Side-by-side comparisons (original vs. retargeted)
+-   Frame 0 pose verification
+-   Motion smoothness checks
 
 ---
 

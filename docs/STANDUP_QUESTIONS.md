@@ -13,6 +13,7 @@
 
 -   What "perfect A-pose" looks like
 -   What "consistent skeleton" means
+-   In the project explanation it says "The ideal template skeleton looks like this" but shows T-pose. Is this just for armature limb length?
 
 **Question:** Can I access the training pipeline's expected input format? Or any existing correctly formatted animations?
 
@@ -32,6 +33,13 @@
 -   One implementation handles all scenarios
 
 **Question:** Is this the right approach, or should I focus only on the A-pose requirement?
+
+### 3. Files in project drive
+
+-   `data/models/amass_joints_h36m_60.pkl` - H3.6M (17 joints) data. Why is this here? Related to evaluation/training pipeline?
+-   `data/archive/converted_train.tar.bz2` - What is this? Already processed data? Relevant to me?
+-   `smplh.json` & `SMPL_H_Armature_transforms.json` - SMPL-H bone structure references (not used in scripts). Should I use these or ignore?
+-   `smplh_tpose.glb` - T-pose armature reference. Is this what I should use for consistent skeleton bone lengths? Is T-pose just for reference and A-pose for actual output?
 
 ---
 
