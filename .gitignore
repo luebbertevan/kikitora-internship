@@ -29,6 +29,8 @@ ENV/
 data/raw/*.tar.bz2
 data/models/*.pkl
 data/output/
+data/archive/
+data/extracted/train/
 *.npz
 *.npy
 
