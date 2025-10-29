@@ -1,6 +1,7 @@
 """
-SMPL+H Animation Retargeting to Consistent T-Pose Skeleton
-Computes bone rotations from joint positions to maintain consistent bone lengths
+SMPL+H Animation Retargeting to Consistent Target Skeleton
+Computes bone rotations from joint positions to maintain consistent bone lengths.
+Default target is A-pose, but can be customized via target_reference.npz
 """
 
 import bpy
@@ -31,43 +32,174 @@ JOINT_NAMES: List[str] = [
     "L_Elbow", "R_Elbow", "L_Wrist", "R_Wrist"
 ] + [f"L_Hand_{i}" for i in range(15)] + [f"R_Hand_{i}" for i in range(15)]
 
-# SMPL offsets
-J_ABSOLUTE: NDArray[np.float64] = np.array([
-    [-0.001795, -0.223333, 0.028219], [0.067725, -0.314740, 0.021404],
-    [-0.069466, -0.313855, 0.023899], [-0.004328, -0.114370, 0.001523],
-    [0.102001, -0.689938, 0.016908], [-0.107756, -0.696424, 0.015049],
-    [0.001159, 0.020810, 0.002615], [0.088406, -1.087899, -0.026785],
-    [-0.091982, -1.094839, -0.027263], [0.002616, 0.073732, 0.028040],
-    [0.114764, -1.143690, 0.092503], [-0.117354, -1.142983, 0.096085],
-    [-0.000162, 0.287603, -0.014817], [0.081461, 0.195482, -0.006050],
-    [-0.079143, 0.192565, -0.010575], [0.004990, 0.352572, 0.036532],
-    [0.172438, 0.225951, -0.014918], [-0.175155, 0.225116, -0.019719],
-    [0.432050, 0.213179, -0.042374], [-0.428897, 0.211787, -0.041119],
-    [0.681284, 0.222165, -0.043545], [-0.684196, 0.219560, -0.046679],
-    [0.783767, 0.213183, -0.022054], [0.815568, 0.216115, -0.018788],
-    [0.837963, 0.214387, -0.018140], [0.791063, 0.216050, -0.044867],
-    [0.821578, 0.217270, -0.048936], [0.845128, 0.215785, -0.052425],
-    [0.765890, 0.208316, -0.084165], [0.781693, 0.207917, -0.094992],
-    [0.797572, 0.206667, -0.105123], [0.779095, 0.213415, -0.067855],
-    [0.806930, 0.215059, -0.072228], [0.829592, 0.213672, -0.078705],
-    [0.723217, 0.202218, -0.017008], [0.740918, 0.203986, 0.007192],
-    [0.762150, 0.200379, 0.022060], [-0.783494, 0.210911, -0.022044],
-    [-0.815675, 0.213810, -0.019676], [-0.837971, 0.212032, -0.020059],
-    [-0.791352, 0.214082, -0.045896], [-0.821700, 0.215536, -0.050057],
-    [-0.844837, 0.214110, -0.053971], [-0.767226, 0.205917, -0.086044],
-    [-0.782858, 0.205594, -0.097170], [-0.798573, 0.204555, -0.107284],
-    [-0.779985, 0.211294, -0.069581], [-0.807581, 0.213016, -0.074152],
-    [-0.829999, 0.211622, -0.081116], [-0.722013, 0.199415, -0.016553],
-    [-0.739452, 0.200249, 0.007932], [-0.760794, 0.195263, 0.022366],
-])
+# Target skeleton data (loaded from target_reference.npz, defaults to A-pose)
+# Can be reloaded via load_target_skeleton() to use a custom target
+J_ABSOLUTE: NDArray[np.float64]
+SMPL_OFFSETS: NDArray[np.float64]
 
-SMPL_OFFSETS: NDArray[np.float64] = np.zeros((52, 3))
-for i in range(52):
-    parent_idx = SMPL_H_PARENTS[i]
-    if parent_idx == -1:
-        SMPL_OFFSETS[i] = J_ABSOLUTE[i]
-    else:
-        SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
+
+def load_target_skeleton(target_path: Optional[Path] = None) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """
+    Load target skeleton reference from .npz file
+    
+    Args:
+        target_path: Path to target reference .npz file. If None, uses default target_reference.npz 
+                     in same directory as this script. The .npz must contain J_ABSOLUTE and SMPL_OFFSETS
+                     for 52 SMPL-H joints.
+        
+    Returns:
+        Tuple of (J_ABSOLUTE, SMPL_OFFSETS) defining the target skeleton pose
+        
+    Raises:
+        FileNotFoundError: If target file doesn't exist
+        KeyError: If required keys are missing
+    """
+    if target_path is None:
+        # Default to target_reference.npz in same directory as this script
+        target_path = Path(__file__).parent / "target_reference.npz"
+    
+    if not target_path.exists():
+        raise FileNotFoundError(
+            f"Target reference skeleton not found: {target_path}\n"
+            f"Provide a .npz file with J_ABSOLUTE and SMPL_OFFSETS arrays, or use default A-pose values."
+        )
+    
+    data = np.load(target_path)
+    
+    if 'J_ABSOLUTE' not in data:
+        raise KeyError(f"Missing 'J_ABSOLUTE' in {target_path}")
+    if 'SMPL_OFFSETS' not in data:
+        raise KeyError(f"Missing 'SMPL_OFFSETS' in {target_path}")
+    
+    J_abs = data['J_ABSOLUTE'].astype(np.float64)
+    offsets = data['SMPL_OFFSETS'].astype(np.float64)
+    
+    if J_abs.shape != (52, 3):
+        raise ValueError(f"J_ABSOLUTE shape {J_abs.shape} != (52, 3)")
+    if offsets.shape != (52, 3):
+        raise ValueError(f"SMPL_OFFSETS shape {offsets.shape} != (52, 3)")
+    
+    print(f"Loaded target skeleton from: {target_path}")
+    return J_abs, offsets
+
+
+# Load target skeleton on import (default is A-pose)
+try:
+    J_ABSOLUTE, SMPL_OFFSETS = load_target_skeleton()
+except Exception:
+    # Missing/invalid target reference is expected in production; silently use defaults
+    print("Using default target (A-pose) values")
+    # Default fallback: A-pose reference values
+    J_ABSOLUTE = np.array([
+        [-0.000000, -0.000000, 95.636375],
+        [9.724527, 0.660794, 93.460052],
+        [-9.724524, 0.660784, 93.460037],
+        [0.000126, -0.956927, 103.547203],
+        [13.950833, -0.007977, 52.078457],
+        [-13.944020, -0.008468, 52.077759],
+        [0.000127, -2.365802, 107.423111],
+        [18.257202, 4.773808, 7.635051],
+        [-18.260323, 4.769928, 7.635861],
+        [0.000123, -1.277968, 120.297935],
+        [20.961849, -9.616167, 3.404962],
+        [-20.956547, -9.623543, 3.413755],
+        [0.000234, 3.741064, 151.219604],
+        [6.068380, 2.859792, 143.648727],
+        [-6.068113, 2.859793, 143.648758],
+        [0.000434, 2.432668, 159.778992],
+        [17.985998, 6.678337, 142.715332],
+        [-17.988436, 6.679042, 142.733200],
+        [35.942127, 8.611701, 121.508385],
+        [-35.972816, 8.599963, 121.549110],
+        [53.440182, -1.038988, 108.006729],
+        [-53.496372, -1.064539, 108.092247],
+        [54.241528, -4.178918, 106.884377],
+        [55.032654, -9.581092, 103.894287],
+        [55.313934, -11.209120, 101.510323],
+        [59.889046, -7.512047, 103.089867],
+        [61.269665, -8.790076, 99.314255],
+        [61.713825, -9.295045, 96.733658],
+        [60.585987, -5.284940, 102.643631],
+        [62.577339, -6.474179, 98.564201],
+        [63.113697, -7.000604, 95.845779],
+        [60.393665, -3.197578, 102.040756],
+        [62.391304, -3.999388, 98.390793],
+        [62.802330, -4.344587, 96.006828],
+        [60.068771, -1.140531, 101.079140],
+        [61.835476, -1.399195, 98.379326],
+        [62.499237, -1.609506, 96.577065],
+        [-54.298100, -4.205809, 106.974464],
+        [-55.091496, -9.612849, 103.993752],
+        [-55.377033, -11.243772, 101.611938],
+        [-59.952194, -7.547348, 103.197510],
+        [-61.345390, -8.830379, 99.428230],
+        [-61.798855, -9.340141, 96.850243],
+        [-60.652172, -5.321231, 102.751076],
+        [-62.656696, -6.515790, 98.679680],
+        [-63.202854, -7.048355, 95.964432],
+        [-60.463154, -3.234254, 102.145844],
+        [-62.469059, -4.039888, 98.501869],
+        [-62.886223, -4.387187, 96.119324],
+        [-60.143600, -1.177774, 101.182289],
+        [-61.915257, -1.442941, 98.486671],
+        [-62.583908, -1.657710, 96.686638],
+    ], dtype=np.float64)
+    
+    # Pre-computed SMPL_OFFSETS (default A-pose reference)
+    SMPL_OFFSETS = np.array([
+        [-0.000000, -0.000000, 95.636375],
+        [9.724527, 0.660794, -2.176323],
+        [-9.724524, 0.660784, -2.176338],
+        [0.000126, -0.956926, 7.910828],
+        [4.226306, -0.668771, -41.381596],
+        [-4.219496, -0.669252, -41.382278],
+        [0.000001, -1.408875, 3.875908],
+        [4.306369, 4.781785, -44.443406],
+        [-4.316302, 4.778397, -44.441897],
+        [-0.000003, 1.087834, 12.874825],
+        [2.704647, -14.389975, -4.230089],
+        [-2.696224, -14.393471, -4.222107],
+        [0.000111, 5.019032, 30.921669],
+        [6.068256, 4.137760, 23.350792],
+        [-6.068237, 4.137761, 23.350822],
+        [0.000200, -1.308395, 8.559387],
+        [11.917618, 3.818545, -0.933395],
+        [-11.920322, 3.819248, -0.915558],
+        [17.956129, 1.933364, -21.206947],
+        [-17.984381, 1.920921, -21.184090],
+        [17.498055, -9.650689, -13.501656],
+        [-17.523556, -9.664503, -13.456863],
+        [0.801346, -3.139930, -1.122353],
+        [0.791126, -5.402174, -2.990089],
+        [0.281281, -1.628028, -2.383965],
+        [6.448864, -6.473060, -4.916862],
+        [1.380619, -1.278029, -3.775612],
+        [0.444160, -0.504969, -2.580597],
+        [7.145805, -4.245953, -5.363098],
+        [1.991352, -1.189239, -4.079430],
+        [0.536358, -0.526425, -2.718422],
+        [6.953484, -2.158590, -5.965973],
+        [1.997639, -0.801810, -3.649963],
+        [0.411026, -0.345200, -2.383965],
+        [6.628590, -0.101543, -6.927589],
+        [1.766705, -0.258664, -2.699814],
+        [0.663761, -0.210311, -1.802261],
+        [-0.801727, -3.141270, -1.117783],
+        [-0.793396, -5.407040, -2.980713],
+        [-0.285538, -1.630922, -2.381813],
+        [-6.455822, -6.482808, -4.894737],
+        [-1.393196, -1.283032, -3.769279],
+        [-0.453465, -0.509762, -2.577988],
+        [-7.155800, -4.256691, -5.341171],
+        [-2.004524, -1.194559, -4.071396],
+        [-0.546158, -0.532565, -2.715248],
+        [-6.966782, -2.169715, -5.946404],
+        [-2.005905, -0.805634, -3.643974],
+        [-0.417164, -0.347299, -2.382545],
+        [-6.647228, -0.113235, -6.909958],
+        [-1.771656, -0.265167, -2.695618],
+        [-0.668652, -0.214769, -1.800034],
+    ], dtype=np.float64)
 
 
 def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -111,17 +243,15 @@ def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -
     return joint_positions
 
 
-def create_tpose_armature(name: str = "SMPLH_Armature") -> bpy.types.Object:
+def create_target_armature(name: str = "SMPLH_Armature") -> bpy.types.Object:
     """
-    Create T-pose armature with consistent bone lengths
+    Create armature with consistent bone lengths from target skeleton reference
     
     Returns:
-        Created armature object with bone length and rest direction info
+        Created armature object with bone length and rest direction info matching target pose
     """
-    # Use T-pose (zero poses)
-    zero_poses = np.zeros((52, 3), dtype=np.float64).flatten()
-    zero_trans = np.zeros(3, dtype=np.float64)
-    tpose_joints = forward_kinematics(zero_poses, zero_trans)
+    # Use target joint positions directly from reference (J_ABSOLUTE defines target pose)
+    target_joints = J_ABSOLUTE.copy()
     
     # Create armature
     armature = bpy.data.armatures.new(name)
@@ -134,16 +264,17 @@ def create_tpose_armature(name: str = "SMPLH_Armature") -> bpy.types.Object:
     
     for i in range(52):
         bone = edit_bones.new(JOINT_NAMES[i])
-        bone.head = Vector(tpose_joints[i])
+        bone.head = Vector(target_joints[i])
         
         children = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
         if children:
             if i == 0:
-                bone.tail = Vector(tpose_joints[3])  # Spine1
+                bone.tail = Vector(target_joints[3])  # Spine1
             else:
-                bone.tail = Vector(tpose_joints[children[0]])
+                bone.tail = Vector(target_joints[children[0]])
         else:
-            bone.tail = Vector(tpose_joints[i]) + Vector((0, 0.05, 0))
+            # For end bones, use offset direction
+            bone.tail = Vector(target_joints[i]) + Vector(SMPL_OFFSETS[i] if np.linalg.norm(SMPL_OFFSETS[i]) > 0.01 else (0, 0.05, 0))
     
     # Set parent relationships
     bone_list = list(edit_bones)
@@ -153,7 +284,7 @@ def create_tpose_armature(name: str = "SMPLH_Armature") -> bpy.types.Object:
     
     bpy.ops.object.mode_set(mode='OBJECT')
     
-    print(f"Created T-pose armature with {len(bone_list)} bones")
+    print(f"Created target armature with {len(bone_list)} bones")
     return armature_obj
 
 
@@ -190,16 +321,14 @@ def retarget_animation(
     Retarget animation by computing bone rotations from joint positions
     
     Args:
-        armature_obj: T-pose armature
+        armature_obj: Target armature (with consistent bone lengths)
         poses: Animation poses (num_frames, 156)
         trans: Animation translations (num_frames, 3)
     """
     num_frames = len(poses)
     
-    # Get T-pose joint positions for reference
-    zero_poses = np.zeros((52, 3), dtype=np.float64).flatten()
-    zero_trans = np.zeros(3, dtype=np.float64)
-    tpose_joints = forward_kinematics(zero_poses, zero_trans)
+    # Get target joint positions for reference (directly from loaded target skeleton)
+    target_joints = J_ABSOLUTE.copy()
     
     # Store bone rest info
     bone_info = []
@@ -210,8 +339,8 @@ def retarget_animation(
             child_idx = 3  # Pelvis points to Spine1
         
         bone_info.append({
-            'head': Vector(tpose_joints[i]),
-            'tail': Vector(tpose_joints[child_idx]) if child_idx is not None else None,
+            'head': Vector(target_joints[i]),
+            'tail': Vector(target_joints[child_idx]) if child_idx is not None else None,
             'child_idx': child_idx
         })
     
@@ -255,7 +384,7 @@ def retarget_animation(
     print("Retargeting complete!")
 
 
-def process_npz_file(npz_path: Path) -> None:
+def process_npz_file(npz_path: Path, output_dir: Optional[Path] = None) -> None:
     """Process NPZ file with retargeting"""
     print(f"\n{'='*80}")
     print(f"Processing: {npz_path.name}")
@@ -272,8 +401,8 @@ def process_npz_file(npz_path: Path) -> None:
     
     print(f"Loaded {len(poses)} frames")
     
-    # Create T-pose armature
-    armature = create_tpose_armature()
+    # Create target armature
+    armature = create_target_armature()
     
     # Set frame range
     bpy.context.scene.frame_start = 0
@@ -283,7 +412,11 @@ def process_npz_file(npz_path: Path) -> None:
     retarget_animation(armature, poses, trans)
     
     # Export
-    output_path = npz_path.with_suffix('.glb')
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = (output_dir / npz_path.stem).with_suffix('.glb')
+    else:
+        output_path = npz_path.with_suffix('.glb')
     bpy.ops.object.select_all(action='DESELECT')
     armature.select_set(True)
     bpy.context.view_layer.objects.active = armature
@@ -306,27 +439,56 @@ def main() -> None:
     else:
         argv = []
     
-    parser = argparse.ArgumentParser(description="Retarget SMPL+H animations to consistent T-pose skeleton")
-    parser.add_argument("input_folder", type=str, help="Folder containing NPZ files")
+    parser = argparse.ArgumentParser(description="Retarget SMPL+H animations to consistent target skeleton (default: A-pose)")
+    parser.add_argument("input_path", type=str, help="Path to a single .npz file or a directory containing .npz files")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of files")
+    parser.add_argument("--output", type=str, default=None, help="Output directory for .glb files (default: next to each .npz)")
+    parser.add_argument("--target", type=str, default=None, help="Path to custom target reference .npz file (must contain J_ABSOLUTE and SMPL_OFFSETS)")
     
     args = parser.parse_args(argv)
     
-    input_folder = Path(args.input_folder)
-    if not input_folder.exists():
-        print(f"Error: Folder not found: {input_folder}")
-        sys.exit(1)
+    # Load custom target if provided; if missing/invalid, continue with defaults
+    if args.target:
+        target_path = Path(args.target)
+        if not target_path.exists():
+            print(f"Target reference not found, using default target (A-pose): {target_path}")
+        else:
+            try:
+                global J_ABSOLUTE, SMPL_OFFSETS
+                J_ABSOLUTE, SMPL_OFFSETS = load_target_skeleton(target_path)
+                print(f"Using custom target reference: {target_path}")
+            except Exception:
+                print("Failed to load custom target; using default target (A-pose)")
     
-    npz_files = sorted(input_folder.rglob("*.npz"))
+    input_path = Path(args.input_path)
+    if not input_path.exists():
+        print(f"Error: Path not found: {input_path}")
+        sys.exit(1)
+
+    # Support single file or directory
+    if input_path.is_file():
+        if input_path.suffix.lower() != ".npz":
+            print(f"Error: File is not an .npz: {input_path}")
+            sys.exit(1)
+        npz_files = [input_path]
+    else:
+        npz_files = sorted(input_path.rglob("*.npz"))
+        if args.limit:
+            npz_files = npz_files[:args.limit]
     if args.limit:
         npz_files = npz_files[:args.limit]
     
     print(f"Found {len(npz_files)} NPZ file(s)")
-    
+
+    # Resolve output directory if provided
+    output_dir: Optional[Path] = None
+    if args.output:
+        output_dir = Path(args.output)
+
     for idx, npz_file in enumerate(npz_files, 1):
         print(f"\n[{idx}/{len(npz_files)}]")
         try:
-            process_npz_file(npz_file)
+            process_npz_file(npz_file, output_dir)
         except Exception as e:
             print(f"Error: {e}")
             import traceback

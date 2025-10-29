@@ -56,16 +56,21 @@ kikitora-internship/
 │
 └── src/
     ├── scripts/             # Main processing scripts
-    │   ├── create_glb_from_npz.py    # Creates .glb from .npz (uses frame 0 FK = inconsistent, IGNORE)
     │   └── retarget.py               # **YOUR MAIN TARGET** - fix/enhance for consistent skeleton + A-pose
     ├── utils/               # Exploration/debug tools
-    │   ├── explore_amass_data.py     # Explore .npz file structure (M1 tool)
-    │   └── debugger.py               # Simple .npz structure debugger (has hardcoded paths)
-    └── visualization/       # Visualization tools
-        ├── visualize_frame0.py      # Visualize frame 0 pose (M1 tool)
-        ├── visualize_neutral_smplh.py # Visualize T-pose skeleton (hardcoded path)
-        ├── visualizer.py             # Full animation visualizer (hardcoded path)
-        └── smplh_debugger.py         # Debug SMPL-H model
+    │   └── explore_amass_data.py     # Explore .npz file structure (M1 tool)
+    ├── visualization/       # Visualization tools
+    │   └── visualize_frame0.py      # Visualize frame 0 pose (M1 tool)
+    └── originals/           # Original files from drive (reference only, hardcoded paths)
+        ├── scripts/
+        │   ├── create_glb_from_npz.py    # Creates .glb from .npz (uses frame 0 FK = inconsistent, IGNORE)
+        │   └── original_retarget.py     # Original retarget.py (reference before modifications)
+        ├── utils/
+        │   └── debugger.py               # Simple .npz structure debugger (has hardcoded paths)
+        └── visualization/
+            ├── visualize_neutral_smplh.py # Visualize T-pose skeleton (hardcoded path)
+            ├── visualizer.py             # Full animation visualizer (hardcoded path)
+            └── smplh_debugger.py         # Debug SMPL-H model
 ```
 
 **Notes:**
@@ -108,30 +113,34 @@ kikitora-internship/
 
 ### M2: Generate Canonical A-Pose Skeleton
 
-**Goal**: Create reference skeleton with consistent bone lengths
+**Goal**: Extract and use reference skeleton with consistent bone lengths from A-Pose.FBX
 
 **Tasks:**
 
-1. Design canonical bone lengths (use average or standard proportions)
-2. Compute A-pose joint positions from these bone lengths
-3. Create forward kinematics function for canonical skeleton
-4. Export reference skeleton as .glb for verification
-5. Generate visualization comparing canonical vs. current skeletons
+1. ✅ Extract A-pose reference from A-Pose.FBX → `src/scripts/target_reference.npz` (**COMPLETED**)
+2. Update `retarget.py` to load target skeleton from `src/scripts/target_reference.npz` (with graceful default to hardcoded A-pose)
+3. Export reference A-pose skeleton as .glb for verification (`src/scripts/target_reference.glb`)
+4. ✅ Create visualization tool for A-pose reference (**COMPLETED** - `visualize_apose_reference.py`)
+5. Verify bone lengths are consistent (compare extracted offsets)
 
-**Acceptance Criteria:**
+**Acceptance Criteria (outcomes only):**
 
--   New constants: `CANONICAL_BONE_LENGTHS` (52 bones)
--   New constants: `CANONICAL_A_POSE_J_ABSOLUTE` (52 joint positions)
--   Function: `canonical_forward_kinematics()`
--   Output: Reference A-pose skeleton .glb file
--   Visual: Side-by-side canonical vs. current skeleton plot
+-   `src/scripts/target_reference.npz` optional; if present, contains `J_ABSOLUTE`, `SMPL_OFFSETS`
+-   `retarget.py` loads `target_reference.npz` when available; otherwise defaults to hardcoded A‑pose
+-   Reference A‑pose `.glb` exported
+-   Bone length consistency verified
 
-**Testing Approach:**
+**Testing Approach (concise):**
 
--   Visualize canonical skeleton in Blender
--   Verify all bones have expected lengths
--   Check skeleton proportions are humanoid
--   Compare to `smplh_tpose.glb`
+-   Verify shapes in `target_reference.npz` (52×3)
+-   Visualize A‑pose (`visualize_apose_reference.py`)
+-   Open exported `.glb` in Blender; spot‑check bone lengths vs. offsets
+
+**Notes:**
+
+-   Default behavior: If no target reference is provided or found, the script silently uses a hardcoded A‑pose target skeleton (intended for production).
+-   Custom target: Provide `--target /path/to/target_reference.npz` to override. File must contain `J_ABSOLUTE` and `SMPL_OFFSETS` for 52 SMPL‑H joints aligned to `JOINT_NAMES`.
+-   Reference is swappable: `target_reference.npz` can be replaced with any compatible target. Ordering is enforced during extraction by name mapping.
 
 ---
 
