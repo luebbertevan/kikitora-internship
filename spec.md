@@ -56,16 +56,21 @@ kikitora-internship/
 │
 └── src/
     ├── scripts/             # Main processing scripts
-    │   ├── create_glb_from_npz.py    # Creates .glb from .npz (uses frame 0 FK = inconsistent, IGNORE)
     │   └── retarget.py               # **YOUR MAIN TARGET** - fix/enhance for consistent skeleton + A-pose
     ├── utils/               # Exploration/debug tools
-    │   ├── explore_amass_data.py     # Explore .npz file structure (M1 tool)
-    │   └── debugger.py               # Simple .npz structure debugger (has hardcoded paths)
-    └── visualization/       # Visualization tools
-        ├── visualize_frame0.py      # Visualize frame 0 pose (M1 tool)
-        ├── visualize_neutral_smplh.py # Visualize T-pose skeleton (hardcoded path)
-        ├── visualizer.py             # Full animation visualizer (hardcoded path)
-        └── smplh_debugger.py         # Debug SMPL-H model
+    │   └── explore_amass_data.py     # Explore .npz file structure (M1 tool)
+    ├── visualization/       # Visualization tools
+    │   └── visualize_frame0.py      # Visualize frame 0 pose (M1 tool)
+    └── originals/           # Original files from drive (reference only, hardcoded paths)
+        ├── scripts/
+        │   ├── create_glb_from_npz.py    # Creates .glb from .npz (uses frame 0 FK = inconsistent, IGNORE)
+        │   └── original_retarget.py     # Original retarget.py (reference before modifications)
+        ├── utils/
+        │   └── debugger.py               # Simple .npz structure debugger (has hardcoded paths)
+        └── visualization/
+            ├── visualize_neutral_smplh.py # Visualize T-pose skeleton (hardcoded path)
+            ├── visualizer.py             # Full animation visualizer (hardcoded path)
+            └── smplh_debugger.py         # Debug SMPL-H model
 ```
 
 **Notes:**
