@@ -117,29 +117,30 @@ kikitora-internship/
 
 **Tasks:**
 
-1. ✅ Extract A-pose reference from A-Pose.FBX → `config/apose_reference.npz` (**COMPLETED**)
-2. Update `retarget.py` to load reference skeleton from `config/apose_reference.npz` instead of hardcoded `J_ABSOLUTE`
-3. Export reference A-pose skeleton as .glb for verification (`config/apose_reference.glb`)
+1. ✅ Extract A-pose reference from A-Pose.FBX → `src/scripts/target_reference.npz` (**COMPLETED**)
+2. Update `retarget.py` to load target skeleton from `src/scripts/target_reference.npz` (with graceful default to hardcoded A-pose)
+3. Export reference A-pose skeleton as .glb for verification (`src/scripts/target_reference.glb`)
 4. ✅ Create visualization tool for A-pose reference (**COMPLETED** - `visualize_apose_reference.py`)
 5. Verify bone lengths are consistent (compare extracted offsets)
 
 **Acceptance Criteria (outcomes only):**
 
--   `config/apose_reference.npz` present with `J_ABSOLUTE`, `SMPL_OFFSETS`
--   `retarget.py` uses this reference (no hardcoded `J_ABSOLUTE`)
+-   `src/scripts/target_reference.npz` optional; if present, contains `J_ABSOLUTE`, `SMPL_OFFSETS`
+-   `retarget.py` loads `target_reference.npz` when available; otherwise defaults to hardcoded A‑pose
 -   Reference A‑pose `.glb` exported
 -   Bone length consistency verified
 
 **Testing Approach (concise):**
 
--   Verify shapes in `apose_reference.npz` (52×3)
+-   Verify shapes in `target_reference.npz` (52×3)
 -   Visualize A‑pose (`visualize_apose_reference.py`)
 -   Open exported `.glb` in Blender; spot‑check bone lengths vs. offsets
 
 **Notes:**
 
--   Reference is swappable: you can replace `config/apose_reference.npz` with any reference `.npz` that supplies `J_ABSOLUTE` and `SMPL_OFFSETS` for the 52 SMPL‑H joints in standard order. Ordering is enforced during extraction by mapping FBX bone names to SMPL‑H `JOINT_NAMES`, so consumers can rely on index alignment.
--   To build a custom reference from another rig (FBX/GLB): import it in Blender, map its bone names to SMPL‑H `JOINT_NAMES`, read bone heads for `J_ABSOLUTE`, compute parent‑relative `SMPL_OFFSETS`, save to `.npz`. For now, we use the A‑pose FBX as the reference.
+-   Default behavior: If no target reference is provided or found, the script silently uses a hardcoded A‑pose target skeleton (intended for production).
+-   Custom target: Provide `--target /path/to/target_reference.npz` to override. File must contain `J_ABSOLUTE` and `SMPL_OFFSETS` for 52 SMPL‑H joints aligned to `JOINT_NAMES`.
+-   Reference is swappable: `target_reference.npz` can be replaced with any compatible target. Ordering is enforced during extraction by name mapping.
 
 ---
 
