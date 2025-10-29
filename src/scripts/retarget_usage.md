@@ -21,7 +21,7 @@ Run Blender in background and pass either a single AMASS .npz file or a director
 
 2. Auto-load local target reference
 
--   Behavior: if src/scripts/target_reference.npz exists, it is loaded. If missing/invalid, falls back to default A-pose.
+-   Behavior: if `target_reference.npz` exists in the same directory as `retarget.py`, it is loaded. If missing/invalid, falls back to default A-pose.
 -   Command: same as (1)
 
 3. Explicit custom target reference
