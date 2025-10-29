@@ -259,6 +259,15 @@ def create_target_armature(name: str = "SMPLH_Armature") -> bpy.types.Object:
     bpy.context.collection.objects.link(armature_obj)
     bpy.context.view_layer.objects.active = armature_obj
     
+    # Ensure armature object is at origin with identity transform
+    armature_obj.location = (0, 0, 0)
+    armature_obj.rotation_euler = (0, 0, 0)
+    armature_obj.scale = (1, 1, 1)
+    
+    # Enable bone display mode so armature is visible
+    armature_obj.show_in_front = True
+    armature.display_type = 'WIRE'
+    
     bpy.ops.object.mode_set(mode='EDIT')
     edit_bones = armature.edit_bones
     
@@ -286,6 +295,46 @@ def create_target_armature(name: str = "SMPLH_Armature") -> bpy.types.Object:
     
     print(f"Created target armature with {len(bone_list)} bones")
     return armature_obj
+
+
+def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
+    """
+    Add a cube mesh and parent it to the armature (required for retargeting pipeline)
+    
+    Args:
+        armature: The armature object to parent the cube to
+        cube_size: Size of the cube (default: 1.0)
+        cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
+        
+    Returns:
+        The created cube object
+    """
+    # Add cube mesh
+    bpy.ops.mesh.primitive_cube_add(
+        size=cube_size,
+        location=cube_location
+    )
+    
+    # Get the cube object (it's selected after creation)
+    cube: bpy.types.Object = bpy.context.active_object
+    cube.name = "ParentedCube"
+    
+    # Clear selection
+    bpy.ops.object.select_all(action='DESELECT')
+    
+    # Select cube and armature
+    cube.select_set(True)
+    armature.select_set(True)
+    
+    # Set armature as active
+    bpy.context.view_layer.objects.active = armature
+    
+    # Parent cube to armature
+    bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+    
+    print(f"Cube '{cube.name}' (size: {cube_size}) parented to armature '{armature.name}' at location {cube_location}")
+    
+    return cube
 
 
 def compute_bone_rotation(bone_head: Vector, bone_tail: Vector, target_pos: Vector) -> Quaternion:
@@ -327,10 +376,13 @@ def retarget_animation(
     """
     num_frames = len(poses)
     
-    # Get target joint positions for reference (directly from loaded target skeleton)
-    target_joints = J_ABSOLUTE.copy()
+    # Compute A-pose joint positions using FK with zero rotations (world space)
+    # This gives us the target A-pose joint positions for reference
+    zero_poses = np.zeros((52, 3), dtype=np.float64).flatten()
+    zero_trans = np.zeros(3, dtype=np.float64)
+    apose_joints = forward_kinematics(zero_poses, zero_trans)
     
-    # Store bone rest info
+    # Store bone rest info in WORLD space (from FK, matching original approach)
     bone_info = []
     for i in range(52):
         children = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
@@ -339,8 +391,8 @@ def retarget_animation(
             child_idx = 3  # Pelvis points to Spine1
         
         bone_info.append({
-            'head': Vector(target_joints[i]),
-            'tail': Vector(target_joints[child_idx]) if child_idx is not None else None,
+            'head': Vector(apose_joints[i]),
+            'tail': Vector(apose_joints[child_idx]) if child_idx is not None else None,
             'child_idx': child_idx
         })
     
@@ -356,29 +408,51 @@ def retarget_animation(
         
         bpy.context.scene.frame_set(frame_idx)
         
-        # Compute FK positions for this frame
-        frame_joints = forward_kinematics(poses[frame_idx], trans[frame_idx])
-        
-        # Apply rotations to each bone
-        for i in range(52):
-            pose_bone = armature_obj.pose.bones[JOINT_NAMES[i]]
-            
-            # Root gets translation
-            if i == 0:
-                pose_bone.location = Vector(frame_joints[i])
-                pose_bone.keyframe_insert(data_path="location", frame=frame_idx)
-            else:
-                pose_bone.location = Vector((0, 0, 0))
-            
-            # Compute rotation
-            info = bone_info[i]
-            if info['child_idx'] is not None:
-                target_pos = Vector(frame_joints[info['child_idx']])
-                rotation = compute_bone_rotation(info['head'], info['tail'], target_pos)
+        # For frame 0, ensure A-pose (identity rotations)
+        if frame_idx == 0:
+            # Frame 0: A-pose with just root translation offset
+            # Root location is offset from rest (just trans[0])
+            for i in range(52):
+                pose_bone = armature_obj.pose.bones[JOINT_NAMES[i]]
                 
+                if i == 0:
+                    # Root location: just the translation offset (trans[0])
+                    pose_bone.location = Vector(trans[frame_idx])
+                    pose_bone.keyframe_insert(data_path="location", frame=frame_idx)
+                else:
+                    pose_bone.location = Vector((0, 0, 0))
+                
+                # Frame 0: Identity rotation (A-pose is rest pose)
                 pose_bone.rotation_mode = 'QUATERNION'
-                pose_bone.rotation_quaternion = rotation
+                pose_bone.rotation_quaternion = Quaternion((1, 0, 0, 0))  # Identity
                 pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+        else:
+            # Other frames: Compute FK and apply rotations
+            frame_joints = forward_kinematics(poses[frame_idx], trans[frame_idx])
+            
+            # Apply rotations to each bone
+            for i in range(52):
+                pose_bone = armature_obj.pose.bones[JOINT_NAMES[i]]
+                
+                # Root gets translation offset (relative to rest position)
+                if i == 0:
+                    # Get root rest position and compute offset
+                    apose_root_rest = forward_kinematics(zero_poses, np.zeros(3))[0]
+                    root_offset = Vector(frame_joints[i]) - Vector(apose_root_rest)
+                    pose_bone.location = root_offset
+                    pose_bone.keyframe_insert(data_path="location", frame=frame_idx)
+                else:
+                    pose_bone.location = Vector((0, 0, 0))
+                
+                # Compute rotation (using world-space positions, matching original)
+                info = bone_info[i]
+                if info['child_idx'] is not None:
+                    target_pos = Vector(frame_joints[info['child_idx']])
+                    rotation = compute_bone_rotation(info['head'], info['tail'], target_pos)
+                    
+                    pose_bone.rotation_mode = 'QUATERNION'
+                    pose_bone.rotation_quaternion = rotation
+                    pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
     
     bpy.ops.object.mode_set(mode='OBJECT')
     print("Retargeting complete!")
@@ -404,6 +478,9 @@ def process_npz_file(npz_path: Path, output_dir: Optional[Path] = None) -> None:
     # Create target armature
     armature = create_target_armature()
     
+    # Add child cube mesh (required for retargeting pipeline)
+    cube = add_cube_and_parent(armature, cube_size=1.0, cube_location=(0, 0, 0))
+    
     # Set frame range
     bpy.context.scene.frame_start = 0
     bpy.context.scene.frame_end = len(poses) - 1
@@ -411,7 +488,7 @@ def process_npz_file(npz_path: Path, output_dir: Optional[Path] = None) -> None:
     # Retarget animation
     retarget_animation(armature, poses, trans)
     
-    # Export
+    # Export - select both armature and cube
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = (output_dir / npz_path.stem).with_suffix('.glb')
@@ -419,6 +496,7 @@ def process_npz_file(npz_path: Path, output_dir: Optional[Path] = None) -> None:
         output_path = npz_path.with_suffix('.glb')
     bpy.ops.object.select_all(action='DESELECT')
     armature.select_set(True)
+    cube.select_set(True)
     bpy.context.view_layer.objects.active = armature
     
     bpy.ops.export_scene.gltf(
@@ -464,7 +542,7 @@ def main() -> None:
     if not input_path.exists():
         print(f"Error: Path not found: {input_path}")
         sys.exit(1)
-
+    
     # Support single file or directory
     if input_path.is_file():
         if input_path.suffix.lower() != ".npz":
@@ -479,7 +557,7 @@ def main() -> None:
         npz_files = npz_files[:args.limit]
     
     print(f"Found {len(npz_files)} NPZ file(s)")
-
+    
     # Resolve output directory if provided
     output_dir: Optional[Path] = None
     if args.output:
