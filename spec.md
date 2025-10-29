@@ -113,30 +113,33 @@ kikitora-internship/
 
 ### M2: Generate Canonical A-Pose Skeleton
 
-**Goal**: Create reference skeleton with consistent bone lengths
+**Goal**: Extract and use reference skeleton with consistent bone lengths from A-Pose.FBX
 
 **Tasks:**
 
-1. Design canonical bone lengths (use average or standard proportions)
-2. Compute A-pose joint positions from these bone lengths
-3. Create forward kinematics function for canonical skeleton
-4. Export reference skeleton as .glb for verification
-5. Generate visualization comparing canonical vs. current skeletons
+1. ✅ Extract A-pose reference from A-Pose.FBX → `config/apose_reference.npz` (**COMPLETED**)
+2. Update `retarget.py` to load reference skeleton from `config/apose_reference.npz` instead of hardcoded `J_ABSOLUTE`
+3. Export reference A-pose skeleton as .glb for verification (`config/apose_reference.glb`)
+4. ✅ Create visualization tool for A-pose reference (**COMPLETED** - `visualize_apose_reference.py`)
+5. Verify bone lengths are consistent (compare extracted offsets)
 
-**Acceptance Criteria:**
+**Acceptance Criteria (outcomes only):**
 
--   New constants: `CANONICAL_BONE_LENGTHS` (52 bones)
--   New constants: `CANONICAL_A_POSE_J_ABSOLUTE` (52 joint positions)
--   Function: `canonical_forward_kinematics()`
--   Output: Reference A-pose skeleton .glb file
--   Visual: Side-by-side canonical vs. current skeleton plot
+-   `config/apose_reference.npz` present with `J_ABSOLUTE`, `SMPL_OFFSETS`
+-   `retarget.py` uses this reference (no hardcoded `J_ABSOLUTE`)
+-   Reference A‑pose `.glb` exported
+-   Bone length consistency verified
 
-**Testing Approach:**
+**Testing Approach (concise):**
 
--   Visualize canonical skeleton in Blender
--   Verify all bones have expected lengths
--   Check skeleton proportions are humanoid
--   Compare to `smplh_tpose.glb`
+-   Verify shapes in `apose_reference.npz` (52×3)
+-   Visualize A‑pose (`visualize_apose_reference.py`)
+-   Open exported `.glb` in Blender; spot‑check bone lengths vs. offsets
+
+**Notes:**
+
+-   Reference is swappable: you can replace `config/apose_reference.npz` with any reference `.npz` that supplies `J_ABSOLUTE` and `SMPL_OFFSETS` for the 52 SMPL‑H joints in standard order. Ordering is enforced during extraction by mapping FBX bone names to SMPL‑H `JOINT_NAMES`, so consumers can rely on index alignment.
+-   To build a custom reference from another rig (FBX/GLB): import it in Blender, map its bone names to SMPL‑H `JOINT_NAMES`, read bone heads for `J_ABSOLUTE`, compute parent‑relative `SMPL_OFFSETS`, save to `.npz`. For now, we use the A‑pose FBX as the reference.
 
 ---
 
