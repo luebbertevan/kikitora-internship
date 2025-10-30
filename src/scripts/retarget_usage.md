@@ -66,3 +66,12 @@ Run Blender in background and pass either a single AMASS .npz file or a director
 -   Default is production-friendly: no reference files required
 -   target_reference.npz lives next to retarget.py when used
 -   SMPL-H joint order is assumed; names match JOINT_NAMES in retarget.py
+
+### Viewing in Blender
+
+After importing the .glb file:
+
+1. Select the `SMPLH_Armature` object in the Outliner
+2. Switch to **Pose Mode** or **Edit Mode** to see bones
+3. Enable **Viewport Overlays** → **Armature** checkbox (if not visible)
+4. The cube mesh should also be visible as a child of the armature
