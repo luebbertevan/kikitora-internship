@@ -19,13 +19,7 @@ M1 — Parity Export (DONE)
 -   Acceptance: GLBs open in Blender; animation matches input FK; child cube present.
 -   Tests: Compare frame positions vs FK (spot check), visual sanity.
 
-M2 — Target A‑pose GLB (DONE)
-
--   Export a 1‑frame GLB of the project’s A‑pose for visual comparison.
--   Acceptance: `target_reference.glb` loads, scale/orientation matches `A-Pose.FBX` visually; child cube present.
--   Tests: Import FBX + GLB together, confirm visual alignment of size/origin; armature visible.
-
-M3 — Clean SMPL‑H Reference (NEW)
+M2 — Clean SMPL‑H Reference (NEW)
 
 -   Objective: Build a clean SMPL‑H armature (52 joints) whose bone lengths and rest angles approximate the FBX A‑pose. Ignore FBX extra bones.
 
@@ -48,7 +42,7 @@ M3 — Clean SMPL‑H Reference (NEW)
     -   Automated: length diff report per bone (GLB vs FBX sample) with pass/fail summary.
     -   Manual: load `A-Pose.FBX` + `smplh_target.glb` in Blender, verify size/orientation match and joint placement.
 
-M4 — Retarget-on-Clean SMPL‑H (Incremental)
+M3 — Retarget-on-Clean SMPL‑H (Incremental)
 
 -   Objective: Drive the clean SMPL‑H with `.npz` animations while preserving consistent bone lengths and setting frame 0 to A‑pose.
 
@@ -62,12 +56,12 @@ M4 — Retarget-on-Clean SMPL‑H (Incremental)
 
     -   Frame 0 equals A‑pose (+ root trans), lengths preserved; visual sanity on 3+ datasets.
 
-M5 — Validation & Tooling
+M4 — Validation & Tooling
 
 -   CLI subcommands for: length check, frame‑0 check, FK diff, quick viewer export.
 -   Compact reports (per‑bone errors, thresholds).
 
-M6 — Documentation & Packaging
+M5 — Documentation & Packaging
 
 -   `retarget_usage.md` concise usage; examples for single file/dir; known constraints.
 -   Minimal `requirements.txt` and README pointers.
