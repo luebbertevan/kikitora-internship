@@ -427,32 +427,77 @@ def retarget_animation(
                 pose_bone.rotation_quaternion = Quaternion((1, 0, 0, 0))  # Identity
                 pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
         else:
-            # Other frames: Compute FK and apply rotations
+            # Other frames: Compute FK target positions
             frame_joints = forward_kinematics(poses[frame_idx], trans[frame_idx])
             
-            # Apply rotations to each bone
+            # Track current joint positions as we apply rotations (incremental FK)
+            # Start with rest positions
+            current_joint_positions = [Vector(apose_joints[j]) for j in range(52)]
+            
+            # Apply rotations in kinematic tree order (root to leaves)
+            # Parents always come before children in joint ordering
             for i in range(52):
                 pose_bone = armature_obj.pose.bones[JOINT_NAMES[i]]
+                parent_idx = int(SMPL_H_PARENTS[i])
                 
-                # Root gets translation offset (relative to rest position)
+                # Root gets translation offset
                 if i == 0:
-                    # Get root rest position and compute offset
                     apose_root_rest = forward_kinematics(zero_poses, np.zeros(3))[0]
                     root_offset = Vector(frame_joints[i]) - Vector(apose_root_rest)
                     pose_bone.location = root_offset
                     pose_bone.keyframe_insert(data_path="location", frame=frame_idx)
+                    # Update root position for children
+                    current_joint_positions[i] = Vector(frame_joints[i])
                 else:
                     pose_bone.location = Vector((0, 0, 0))
+                    # Update current position based on parent's current position
+                    # Parent has already been processed and its rotation applied
+                    if parent_idx >= 0:
+                        parent_pos = current_joint_positions[parent_idx]
+                        # Get parent's rotation from pose bone
+                        parent_pose_bone = armature_obj.pose.bones[JOINT_NAMES[parent_idx]]
+                        parent_rotation = parent_pose_bone.rotation_quaternion
+                        
+                        # Get rest offset from parent to this joint
+                        rest_parent_pos = Vector(apose_joints[parent_idx])
+                        rest_joint_pos = Vector(apose_joints[i])
+                        rest_offset = rest_joint_pos - rest_parent_pos
+                        
+                        # Rotate the offset and add to parent's current position
+                        rotated_offset = parent_rotation @ rest_offset
+                        current_joint_positions[i] = parent_pos + rotated_offset
                 
-                # Compute rotation (using world-space positions, matching original)
+                # Compute rotation for this bone's child(ren)
                 info = bone_info[i]
                 if info['child_idx'] is not None:
+                    # Use current head position (reflects parent rotations)
+                    current_head = current_joint_positions[i]
+                    # Target is the FK-computed position for the child
                     target_pos = Vector(frame_joints[info['child_idx']])
-                    rotation = compute_bone_rotation(info['head'], info['tail'], target_pos)
                     
-                    pose_bone.rotation_mode = 'QUATERNION'
-                    pose_bone.rotation_quaternion = rotation
-                    pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+                    # Compute rest bone direction (from rest position)
+                    rest_tail = Vector(apose_joints[info['child_idx']])
+                    rest_dir = (rest_tail - Vector(apose_joints[i])).normalized()
+                    
+                    # Compute direction to target
+                    target_dir = (target_pos - current_head).normalized()
+                    
+                    # Only compute rotation if we have valid directions
+                    if rest_dir.length > 0.001 and target_dir.length > 0.001:
+                        rotation = rest_dir.rotation_difference(target_dir)
+                        pose_bone.rotation_mode = 'QUATERNION'
+                        pose_bone.rotation_quaternion = rotation
+                        pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+                        
+                        # Update child position: rotate rest direction and scale by bone length
+                        bone_length = (rest_tail - Vector(apose_joints[i])).length
+                        rotated_dir = rotation @ rest_dir
+                        current_joint_positions[info['child_idx']] = current_head + rotated_dir * bone_length
+                    else:
+                        # Identity rotation if invalid
+                        pose_bone.rotation_mode = 'QUATERNION'
+                        pose_bone.rotation_quaternion = Quaternion((1, 0, 0, 0))
+                        pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
     
     bpy.ops.object.mode_set(mode='OBJECT')
     print("Retargeting complete!")
