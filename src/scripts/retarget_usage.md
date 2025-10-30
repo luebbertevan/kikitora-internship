@@ -75,3 +75,9 @@ After importing the .glb file:
 2. Switch to **Pose Mode** or **Edit Mode** to see bones
 3. Enable **Viewport Overlays** → **Armature** checkbox (if not visible)
 4. The cube mesh should also be visible as a child of the armature
+
+
+
+/Applications/Blender.app/Contents/MacOS/Blender --background \
+  --python "/Users/evan/fractal-bootcamp/kikitora-internship/src/scripts/retarget.py" -- \
+  "/Users/evan/fractal-bootcamp/kikitora-internship/data/extracted/ACCAD/Female1Gestures_c3d" --limit 1
