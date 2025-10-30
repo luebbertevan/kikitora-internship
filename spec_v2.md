@@ -25,11 +25,12 @@ M2 — Clean SMPL‑H Reference (NEW)
 
     Tasks
 
-    -   Create explicit FBX→SMPL‑H name mapping (52 only; ignore twist/end/helper bones).
-    -   Extract FBX A‑pose joint heads for mapped bones (object/world space at identity), convert cm→m.
-    -   Compute `J_ABSOLUTE` (52×3) and `SMPL_OFFSETS` using the SMPL‑H tree.
+    -   Inventory FBX armature and export CSV (bone_name, parent, length, children, is_end).
+    -   Create explicit FBX→SMPL‑H name mapping (52 only; ignore twist/end/helper/metacarpal/end bones).
+    -   Extract FBX A‑pose joint heads for mapped bones (armature at identity). Units: use as-is; only convert if numeric checks fail.
+    -   Compute `J_ABSOLUTE` (52×3) and `SMPL_OFFSETS` using the SMPL‑H tree; save `smplh_target_reference.npz`.
     -   Generate `smplh_target.glb` armature from these values (no animation), with child cube.
-    -   Add validation script to compare lengths vs FBX (tolerance ≤ 2 mm) and hierarchy correctness.
+    -   Add validation: compare parent‑child distances vs FBX (≤ 2 mm) and hierarchy correctness, plus quick visual check.
 
     Acceptance Criteria
 
@@ -41,6 +42,10 @@ M2 — Clean SMPL‑H Reference (NEW)
 
     -   Automated: length diff report per bone (GLB vs FBX sample) with pass/fail summary.
     -   Manual: load `A-Pose.FBX` + `smplh_target.glb` in Blender, verify size/orientation match and joint placement.
+
+    Notes
+
+    -   Unit conversion: we will not change units unless numeric length checks indicate a mismatch; visual parity suggests FBX scale is already correct in the project.
 
 M3 — Retarget-on-Clean SMPL‑H (Incremental)
 
