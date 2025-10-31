@@ -88,6 +88,53 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     return R
 
 
+def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
+    """
+    Load reference pelvis position from smplh_target_reference.npz.
+    
+    Returns:
+        Reference pelvis position as (3,) array, or None if not found
+    """
+    try:
+        ref_path = Path(__file__).parent.parent / 'data' / 'reference' / 'smplh_target_reference.npz'
+        ref = np.load(str(ref_path))
+        J_ABSOLUTE_ref = ref['J_ABSOLUTE']
+        return J_ABSOLUTE_ref[0]  # Pelvis is index 0
+    except (FileNotFoundError, KeyError) as e:
+        print(f"Warning: Could not load reference pelvis: {e}")
+        return None
+
+
+def align_root_to_reference(
+    joint_positions: NDArray[np.float64],
+    reference_pelvis: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """
+    Align animation root (pelvis) to reference position.
+    
+    Applies translation offset to all joints to align frame 0 pelvis
+    with the reference pelvis position. Preserves relative motion.
+    
+    Args:
+        joint_positions: (num_frames, 52, 3) or (52, 3) - joint positions
+        reference_pelvis: (3,) - target pelvis position
+    
+    Returns:
+        aligned_joints: Same shape as input - aligned joint positions
+    """
+    # Handle both single frame and multi-frame inputs
+    if joint_positions.ndim == 2:
+        # Single frame: (52, 3)
+        frame0_pelvis = joint_positions[0, :]  # Pelvis is index 0
+        translation_offset = reference_pelvis - frame0_pelvis
+        return joint_positions + translation_offset[np.newaxis, :]
+    else:
+        # Multi-frame: (num_frames, 52, 3)
+        frame0_pelvis = joint_positions[0, 0, :]  # Frame 0, Pelvis is index 0
+        translation_offset = reference_pelvis - frame0_pelvis
+        return joint_positions + translation_offset[np.newaxis, np.newaxis, :]
+
+
 def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -> NDArray[np.float64]:
     """EXACT SAME FUNCTION AS MATPLOTLIB SCRIPT"""
     num_joints: int = len(SMPL_H_PARENTS)
@@ -277,6 +324,14 @@ def process_npz_file(
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
     
+    # Clear all animation data to prevent cross-contamination between files
+    for action in bpy.data.actions:
+        bpy.data.actions.remove(action)
+    for mesh in bpy.data.meshes:
+        bpy.data.meshes.remove(mesh)
+    for armature in bpy.data.armatures:
+        bpy.data.armatures.remove(armature)
+    
     # Load NPZ file
     data = np.load(str(npz_path))
     poses: NDArray[np.float64] = data['poses']
@@ -293,6 +348,14 @@ def process_npz_file(
     # Using actual frame 0 pose data instead of T-pose ensures correct bone orientations
     joint_positions_frame0: NDArray[np.float64] = forward_kinematics(poses[0], trans[0])
     print("Using frame 0 pose (from FK) for armature creation")
+    
+    # M3: Align root to reference pelvis position
+    reference_pelvis = load_reference_pelvis()
+    if reference_pelvis is not None:
+        joint_positions_frame0 = align_root_to_reference(joint_positions_frame0, reference_pelvis)
+        print(f"✓ Aligned root to reference pelvis: {reference_pelvis}")
+    else:
+        print("⚠️  Skipping root alignment (reference not found)")
     
     # Create armature
     armature_data = bpy.data.armatures.new("SMPL_H_Armature")
@@ -349,6 +412,17 @@ def process_npz_file(
         empty.empty_display_size = 0.02
         empties.append(empty)
     
+    # M3: Calculate translation offset from frame 0 to align with reference (once)
+    translation_offset = np.zeros(3)
+    if reference_pelvis is not None:
+        # Get frame 0 pelvis position BEFORE alignment
+        frame0_joints = forward_kinematics(poses[0], trans[0])
+        frame0_pelvis = frame0_joints[0, :]  # Pelvis is index 0
+        # Calculate the offset needed to move frame 0 pelvis to reference
+        translation_offset = reference_pelvis - frame0_pelvis
+        print(f"✓ Translation offset calculated: {translation_offset}")
+        print(f"  This will move entire animation so frame 0 pelvis is at reference position")
+    
     # Animate empties using computed forward kinematics - ALL FRAMES PROCESSED THE SAME WAY
     frame_skip: int = 1  # Keyframe every frame
     print("Processing all frames with forward kinematics (no special frame 0 handling)...")
@@ -357,6 +431,10 @@ def process_npz_file(
         
         # Compute joint positions using EXACT SAME forward kinematics
         joint_positions: NDArray[np.float64] = forward_kinematics(poses[frame_idx], trans[frame_idx])
+        
+        # M3: Apply the same translation offset to all frames (moves entire animation)
+        if reference_pelvis is not None:
+            joint_positions = joint_positions + translation_offset[np.newaxis, :]
         
         # Set empty positions
         for i in range(52):
