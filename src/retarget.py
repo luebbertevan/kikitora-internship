@@ -259,13 +259,13 @@ def apply_json_pose_to_frame0(armature: bpy.types.Object, json_filepath: str) ->
 
 
 
-def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
+def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 0.05, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
     """
     Add a cube mesh and parent it to the armature
     
     Args:
         armature: The armature object to parent the cube to
-        cube_size: Size of the cube (default: 1.0)
+        cube_size: Size of the cube (default: 0.05)
         cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
         
     Returns:
@@ -302,8 +302,7 @@ def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube
 def process_npz_file(
     npz_path: Path, 
     json_pose_path: Optional[str] = None,
-    add_cube: bool = False,
-    cube_size: float = 1.0,
+    cube_size: float = 0.05,
     cube_location: tuple[float, float, float] = (0.0, 0.0, 0.0)
 ) -> None:
     """
@@ -312,8 +311,7 @@ def process_npz_file(
     Args:
         npz_path: Path to the NPZ file to process
         json_pose_path: Optional path to JSON pose file to override frame 0 after baking
-        add_cube: Whether to add a cube parented to the armature (default: False)
-        cube_size: Size of the cube to add (default: 1.0)
+        cube_size: Size of the cube to add (default: 0.05)
         cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
     """
     print(f"\n{'='*80}")
@@ -562,19 +560,16 @@ def process_npz_file(
     
     print("Empties removed. Ready for export.")
     
-    # Add cube if requested
-    cube: Optional[bpy.types.Object] = None
-    if add_cube:
-        cube = add_cube_and_parent(armature, cube_size, cube_location)
+    # Add cube (always required for pipeline)
+    cube: bpy.types.Object = add_cube_and_parent(armature, cube_size, cube_location)
     
     # Export to GLB with "retargeted" in filename
     output_path: Path = npz_path.with_stem(npz_path.stem + '_retargeted').with_suffix('.glb')
     
-    # Select armature and cube (if exists) for export
+    # Select armature and cube for export
     bpy.ops.object.select_all(action='DESELECT')
     armature.select_set(True)
-    if cube:
-        cube.select_set(True)
+    cube.select_set(True)
     bpy.context.view_layer.objects.active = armature
     
     bpy.ops.export_scene.gltf(
@@ -643,15 +638,10 @@ def main() -> None:
         help="Limit the number of files to process (for testing)"
     )
     parser.add_argument(
-        "--add-cube",
-        action="store_true",
-        help="Add a cube mesh parented to the armature before export"
-    )
-    parser.add_argument(
         "--cube-size",
         type=float,
-        default=1.0,
-        help="Size of the cube to add (default: 1.0)"
+        default=0.05,
+        help="Size of the cube to add (default: 0.05)"
     )
     parser.add_argument(
         "--cube-location",
@@ -724,7 +714,7 @@ def main() -> None:
             # Convert centimeters -> meters to match Blender/glTF units
             J = (J * 0.01).astype(np.float64)
             armature = _create_armature_from_target(J)
-            cube = add_cube_and_parent(armature, cube_size=1.0, cube_location=(0.0, 0.0, 0.0))
+            cube = add_cube_and_parent(armature, cube_size=0.05, cube_location=(0.0, 0.0, 0.0))
             bpy.context.scene.frame_start = 0
             bpy.context.scene.frame_end = 0
             if out_dir is not None:
@@ -781,7 +771,6 @@ def main() -> None:
             process_npz_file(
                 npz_file, 
                 args.json_pose,
-                args.add_cube,
                 args.cube_size,
                 tuple(args.cube_location)
             )
