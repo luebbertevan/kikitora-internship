@@ -489,8 +489,8 @@ def process_npz_file(
     if add_cube:
         cube = add_cube_and_parent(armature, cube_size, cube_location)
     
-    # Export to GLB
-    output_path: Path = npz_path.with_suffix('.glb')
+    # Export to GLB with "retargeted" in filename
+    output_path: Path = npz_path.with_stem(npz_path.stem + '_retargeted').with_suffix('.glb')
     
     # Select armature and cube (if exists) for export
     bpy.ops.object.select_all(action='DESELECT')
