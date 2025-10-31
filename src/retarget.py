@@ -88,6 +88,53 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     return R
 
 
+def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
+    """
+    Load reference pelvis position from smplh_target_reference.npz.
+    
+    Returns:
+        Reference pelvis position as (3,) array, or None if not found
+    """
+    try:
+        ref_path = Path(__file__).parent.parent / 'data' / 'reference' / 'smplh_target_reference.npz'
+        ref = np.load(str(ref_path))
+        J_ABSOLUTE_ref = ref['J_ABSOLUTE']
+        return J_ABSOLUTE_ref[0]  # Pelvis is index 0
+    except (FileNotFoundError, KeyError) as e:
+        print(f"Warning: Could not load reference pelvis: {e}")
+        return None
+
+
+def align_root_to_reference(
+    joint_positions: NDArray[np.float64],
+    reference_pelvis: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """
+    Align animation root (pelvis) to reference position.
+    
+    Applies translation offset to all joints to align frame 0 pelvis
+    with the reference pelvis position. Preserves relative motion.
+    
+    Args:
+        joint_positions: (num_frames, 52, 3) or (52, 3) - joint positions
+        reference_pelvis: (3,) - target pelvis position
+    
+    Returns:
+        aligned_joints: Same shape as input - aligned joint positions
+    """
+    # Handle both single frame and multi-frame inputs
+    if joint_positions.ndim == 2:
+        # Single frame: (52, 3)
+        frame0_pelvis = joint_positions[0, :]  # Pelvis is index 0
+        translation_offset = reference_pelvis - frame0_pelvis
+        return joint_positions + translation_offset[np.newaxis, :]
+    else:
+        # Multi-frame: (num_frames, 52, 3)
+        frame0_pelvis = joint_positions[0, 0, :]  # Frame 0, Pelvis is index 0
+        translation_offset = reference_pelvis - frame0_pelvis
+        return joint_positions + translation_offset[np.newaxis, np.newaxis, :]
+
+
 def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -> NDArray[np.float64]:
     """EXACT SAME FUNCTION AS MATPLOTLIB SCRIPT"""
     num_joints: int = len(SMPL_H_PARENTS)
@@ -212,13 +259,13 @@ def apply_json_pose_to_frame0(armature: bpy.types.Object, json_filepath: str) ->
 
 
 
-def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
+def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 0.05, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
     """
     Add a cube mesh and parent it to the armature
     
     Args:
         armature: The armature object to parent the cube to
-        cube_size: Size of the cube (default: 1.0)
+        cube_size: Size of the cube (default: 0.05)
         cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
         
     Returns:
@@ -255,8 +302,7 @@ def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube
 def process_npz_file(
     npz_path: Path, 
     json_pose_path: Optional[str] = None,
-    add_cube: bool = False,
-    cube_size: float = 1.0,
+    cube_size: float = 0.05,
     cube_location: tuple[float, float, float] = (0.0, 0.0, 0.0)
 ) -> None:
     """
@@ -265,8 +311,7 @@ def process_npz_file(
     Args:
         npz_path: Path to the NPZ file to process
         json_pose_path: Optional path to JSON pose file to override frame 0 after baking
-        add_cube: Whether to add a cube parented to the armature (default: False)
-        cube_size: Size of the cube to add (default: 1.0)
+        cube_size: Size of the cube to add (default: 0.05)
         cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
     """
     print(f"\n{'='*80}")
@@ -276,6 +321,14 @@ def process_npz_file(
     # Clear existing objects
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
+    
+    # Clear all animation data to prevent cross-contamination between files
+    for action in bpy.data.actions:
+        bpy.data.actions.remove(action)
+    for mesh in bpy.data.meshes:
+        bpy.data.meshes.remove(mesh)
+    for armature in bpy.data.armatures:
+        bpy.data.armatures.remove(armature)
     
     # Load NPZ file
     data = np.load(str(npz_path))
@@ -293,6 +346,14 @@ def process_npz_file(
     # Using actual frame 0 pose data instead of T-pose ensures correct bone orientations
     joint_positions_frame0: NDArray[np.float64] = forward_kinematics(poses[0], trans[0])
     print("Using frame 0 pose (from FK) for armature creation")
+    
+    # M3: Align root to reference pelvis position
+    reference_pelvis = load_reference_pelvis()
+    if reference_pelvis is not None:
+        joint_positions_frame0 = align_root_to_reference(joint_positions_frame0, reference_pelvis)
+        print(f"✓ Aligned root to reference pelvis: {reference_pelvis}")
+    else:
+        print("⚠️  Skipping root alignment (reference not found)")
     
     # Create armature
     armature_data = bpy.data.armatures.new("SMPL_H_Armature")
@@ -349,6 +410,17 @@ def process_npz_file(
         empty.empty_display_size = 0.02
         empties.append(empty)
     
+    # M3: Calculate translation offset from frame 0 to align with reference (once)
+    translation_offset = np.zeros(3)
+    if reference_pelvis is not None:
+        # Get frame 0 pelvis position BEFORE alignment
+        frame0_joints = forward_kinematics(poses[0], trans[0])
+        frame0_pelvis = frame0_joints[0, :]  # Pelvis is index 0
+        # Calculate the offset needed to move frame 0 pelvis to reference
+        translation_offset = reference_pelvis - frame0_pelvis
+        print(f"✓ Translation offset calculated: {translation_offset}")
+        print(f"  This will move entire animation so frame 0 pelvis is at reference position")
+    
     # Animate empties using computed forward kinematics - ALL FRAMES PROCESSED THE SAME WAY
     frame_skip: int = 1  # Keyframe every frame
     print("Processing all frames with forward kinematics (no special frame 0 handling)...")
@@ -357,6 +429,10 @@ def process_npz_file(
         
         # Compute joint positions using EXACT SAME forward kinematics
         joint_positions: NDArray[np.float64] = forward_kinematics(poses[frame_idx], trans[frame_idx])
+        
+        # M3: Apply the same translation offset to all frames (moves entire animation)
+        if reference_pelvis is not None:
+            joint_positions = joint_positions + translation_offset[np.newaxis, :]
         
         # Set empty positions
         for i in range(52):
@@ -484,19 +560,16 @@ def process_npz_file(
     
     print("Empties removed. Ready for export.")
     
-    # Add cube if requested
-    cube: Optional[bpy.types.Object] = None
-    if add_cube:
-        cube = add_cube_and_parent(armature, cube_size, cube_location)
+    # Add cube (always required for pipeline)
+    cube: bpy.types.Object = add_cube_and_parent(armature, cube_size, cube_location)
     
     # Export to GLB with "retargeted" in filename
     output_path: Path = npz_path.with_stem(npz_path.stem + '_retargeted').with_suffix('.glb')
     
-    # Select armature and cube (if exists) for export
+    # Select armature and cube for export
     bpy.ops.object.select_all(action='DESELECT')
     armature.select_set(True)
-    if cube:
-        cube.select_set(True)
+    cube.select_set(True)
     bpy.context.view_layer.objects.active = armature
     
     bpy.ops.export_scene.gltf(
@@ -565,15 +638,10 @@ def main() -> None:
         help="Limit the number of files to process (for testing)"
     )
     parser.add_argument(
-        "--add-cube",
-        action="store_true",
-        help="Add a cube mesh parented to the armature before export"
-    )
-    parser.add_argument(
         "--cube-size",
         type=float,
-        default=1.0,
-        help="Size of the cube to add (default: 1.0)"
+        default=0.05,
+        help="Size of the cube to add (default: 0.05)"
     )
     parser.add_argument(
         "--cube-location",
@@ -646,7 +714,7 @@ def main() -> None:
             # Convert centimeters -> meters to match Blender/glTF units
             J = (J * 0.01).astype(np.float64)
             armature = _create_armature_from_target(J)
-            cube = add_cube_and_parent(armature, cube_size=1.0, cube_location=(0.0, 0.0, 0.0))
+            cube = add_cube_and_parent(armature, cube_size=0.05, cube_location=(0.0, 0.0, 0.0))
             bpy.context.scene.frame_start = 0
             bpy.context.scene.frame_end = 0
             if out_dir is not None:
@@ -703,7 +771,6 @@ def main() -> None:
             process_npz_file(
                 npz_file, 
                 args.json_pose,
-                args.add_cube,
                 args.cube_size,
                 tuple(args.cube_location)
             )
