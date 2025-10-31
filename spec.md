@@ -51,7 +51,7 @@ M2 — Clean SMPL‑H Reference (DONE)
     -   **ISSUE**: `smplh_target.glb` is scaled too large compared to the animations. Need to fix scaling to match the data files before proceeding to M3.
     -   Status: ⚠️ Complete but requires scale fix
 
-M2.1 — Fix Reference Scale (URGENT)
+M2.1 — Fix Reference Scale 
 
 -   Objective: Fix the scaling of `smplh_target.glb` and `smplh_target_reference.npz` to match the scale used in the actual animation data.
 
