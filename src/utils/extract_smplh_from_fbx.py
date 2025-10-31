@@ -52,7 +52,8 @@ def extract_joints_from_fbx(armature_obj, mapping: Dict[str, str]) -> np.ndarray
         if fbx_name not in edit_bones:
             raise KeyError(f"FBX bone not found for {smpl_name}: '{fbx_name}'")
         head = edit_bones[fbx_name].head
-        # Convert to world space then back to object if needed; we keep object space (armature at identity assumed)
+        # FBX coordinate conversion: no transform needed, use as-is
+        # (Blender FBX import handles coordinate system automatically)
         heads[i] = np.array([head.x, head.y, head.z], dtype=np.float64)
     bpy.ops.object.mode_set(mode='OBJECT')
     return heads
