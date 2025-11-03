@@ -1,5 +1,20 @@
 """
-Debug script to check armature rest pose bone positions from a GLB.
+============================================================================
+DEBUG ARMATURE REST POSE
+============================================================================
+
+PURPOSE:
+    Debugging tool to check and compare armature rest pose bone positions 
+    from a GLB file against the reference NPZ. Prints bone head positions 
+    and differences to help diagnose rest pose issues.
+
+RELEVANCE: ⚠️ DEBUG ONLY - Useful for troubleshooting armature issues
+
+MILESTONE: M2+ (Debugging tool, used during reference setup)
+
+USAGE:
+    blender --background --python debug_armature_rest_pose.py -- <GLB_FILE>
+============================================================================
 """
 import bpy
 import numpy as np

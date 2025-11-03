@@ -91,7 +91,7 @@ M3 — Standardize Root Position & Orientation
     Files to Change
 
     -   `src/scripts/retarget.py`: Add `align_root_to_reference()` function, integrate into processing pipeline
-    -   `src/utils/validate_root_alignment.py` (new): Automated validation script
+    -   `src/utils/validation/validate_root_alignment.py` (new): Automated validation script
 
     Tasks
 
@@ -112,7 +112,7 @@ M3 — Standardize Root Position & Orientation
 
     Testing
 
-    -   Automated: `validate_root_alignment.py` on 5+ files, check distance error < 0.1mm.
+    -   Automated: `src/utils/validation/validate_root_alignment.py` on 5+ files, check distance error < 0.1mm.
     -   Manual: Load `smplh_target.glb` + output GLB in Blender, verify frame 0 pelvis overlap.
     -   Animation integrity: Play animation, verify natural motion (no pops or jitter).
     -   Visual: Check that frames 1+ preserve correct relative motion.

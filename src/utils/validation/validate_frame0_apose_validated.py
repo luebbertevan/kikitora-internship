@@ -1,8 +1,26 @@
 """
-Validate that frame 0 of a GLB matches the reference A-pose.
+============================================================================
+VALIDATE FRAME 0 A-POSE (VALIDATED VERSION)
+============================================================================
 
-Usage:
+PURPOSE:
+    VALIDATED VERSION - This is the verified/correct version of the script.
+    Validates that frame 0 of retargeted GLB files matches the reference 
+    A-pose. Compares all 52 joint positions against the reference and reports 
+    per-joint errors. Can process single files or entire directories.
+
+RELEVANCE: ✅ VALIDATED - This is the verified correct version
+    This script has been validated and confirmed to work correctly. Use this 
+    version over the one in src/utils/ if there are any discrepancies.
+
+MILESTONE: M4 (A-pose standardization - ACTIVE)
+
+USAGE:
     blender --background --python validate_frame0_apose.py -- <GLB_FILE_OR_DIR> [--limit N]
+
+EXAMPLE:
+    blender --background --python validate_frame0_apose.py -- data/test_small --limit 3
+============================================================================
 """
 import bpy
 import numpy as np

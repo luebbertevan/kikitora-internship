@@ -1,8 +1,23 @@
 """
-Simple script to convert the reference A-pose NPZ to a GLB with multiple frames of the same pose.
+============================================================================
+CONVERT REFERENCE TO GLB
+============================================================================
 
-Usage:
+PURPOSE:
+    Converts the reference A-pose NPZ (smplh_target_reference.npz) to a GLB 
+    file with multiple frames of the same A-pose. Useful for creating test 
+    reference GLBs with multiple frames for validation purposes.
+
+RELEVANCE: ✅ ACTIVE - Useful utility for creating reference GLBs
+
+MILESTONE: M2+ (Reference generation)
+
+USAGE:
     blender --background --python convert_reference_to_glb.py -- <NUM_FRAMES> [OUTPUT_PATH]
+
+EXAMPLE:
+    blender --background --python convert_reference_to_glb.py -- 10 data/reference/reference_apose_10frames.glb
+============================================================================
 """
 import bpy
 import numpy as np

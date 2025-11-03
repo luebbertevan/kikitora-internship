@@ -1,6 +1,25 @@
 """
-M1 Data Exploration Tool
-Explore AMASS .npz files to understand the data structure and visualize frame 0 poses
+============================================================================
+EXPLORE AMASS DATA
+============================================================================
+
+PURPOSE:
+    Data exploration tool for AMASS .npz files. Inspects file structure, 
+    displays key data fields, and compares frame 0 poses across multiple 
+    files to understand data format and variations.
+
+RELEVANCE: 📚 REFERENCE - Useful for understanding data format
+    Helpful when exploring new datasets or debugging data issues.
+
+MILESTONE: M1 (Data exploration - COMPLETED)
+
+USAGE:
+    python explore_amass_data.py <npz_file_path>
+    python explore_amass_data.py <directory_with_npz_files>
+
+EXAMPLE:
+    python explore_amass_data.py data/extracted/ACCAD/Female1Gestures_c3d/D1\ -\ Urban\ 1_poses.npz
+============================================================================
 """
 import numpy as np
 import sys

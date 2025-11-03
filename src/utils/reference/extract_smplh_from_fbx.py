@@ -1,3 +1,27 @@
+"""
+============================================================================
+EXTRACT SMPL-H FROM FBX
+============================================================================
+
+PURPOSE:
+    Extracts SMPL-H joint positions and bone structure from an FBX armature 
+    using a mapping file. Generates smplh_target_reference.npz and 
+    smplh_target.glb files for use as reference in the retargeting pipeline.
+
+RELEVANCE: 📚 ARCHIVE - Historical (M2 DONE, reference already created)
+    Kept for reference. The reference files have already been generated and 
+    are stored in data/reference/. Useful if reference needs regeneration 
+    or for understanding the extraction process.
+
+MILESTONE: M2 (Reference extraction - COMPLETED)
+
+USAGE:
+    blender --background --python extract_smplh_from_fbx.py -- <FBX> <MAPPING_JSON> <OUT_DIR>
+
+EXAMPLE:
+    blender --background --python extract_smplh_from_fbx.py -- reference/A-Pose.FBX config/mapping_fbx_to_smplh.json data/reference/
+============================================================================
+"""
 import bpy
 import json
 import numpy as np
