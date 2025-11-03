@@ -1,8 +1,26 @@
 """
-Validate a single frame from a GLB by extracting joint positions and comparing to reference.
+============================================================================
+VALIDATE SINGLE FRAME
+============================================================================
 
-Usage:
+PURPOSE:
+    Validates a specific frame from a GLB file by extracting all joint 
+    positions and comparing them to the reference A-pose positions. Provides 
+    detailed per-joint error statistics and identifies joints with largest 
+    deviations.
+
+RELEVANCE: ✅ ACTIVE - Useful validation tool for debugging specific frames
+    Helpful for troubleshooting individual frames that fail other validations 
+    or for understanding pose accuracy at different frames.
+
+MILESTONE: M3+ (Frame validation - ACTIVE)
+
+USAGE:
     blender --background --python validate_single_frame.py -- <GLB_FILE> [FRAME_NUMBER]
+
+EXAMPLE:
+    blender --background --python validate_single_frame.py -- data/test_small/D6-\ CartWheel_poses_retargeted.glb 0
+============================================================================
 """
 import bpy
 import numpy as np

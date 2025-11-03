@@ -1,4 +1,26 @@
-"""Validate root (pelvis) alignment of retargeted GLB files against reference."""
+"""
+============================================================================
+VALIDATE ROOT ALIGNMENT
+============================================================================
+
+PURPOSE:
+    Validates that frame 0 pelvis (root bone) position matches the reference 
+    A-pose pelvis position from smplh_target_reference.npz. Checks alignment 
+    accuracy across multiple GLB files and reports pass/fail statistics.
+
+RELEVANCE: ✅ ACTIVE - Current validation tool for M3+
+    Critical validation script for ensuring root alignment in retargeted 
+    animations. Part of the validation suite.
+
+MILESTONE: M3 (Root alignment - ACTIVE)
+
+USAGE:
+    blender --background --python validate_root_alignment.py -- <glb_file_or_dir> [--limit N]
+
+EXAMPLE:
+    blender --background --python validate_root_alignment.py -- data/output/ --limit 5
+============================================================================
+"""
 import bpy
 import numpy as np
 import sys

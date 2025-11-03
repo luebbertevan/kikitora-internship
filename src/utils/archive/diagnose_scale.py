@@ -1,4 +1,22 @@
-"""Diagnose the scale mismatch between FBX reference and animation data."""
+"""
+============================================================================
+DIAGNOSE SCALE MISMATCH
+============================================================================
+
+PURPOSE:
+    Diagnoses scale mismatches between FBX-extracted reference and animation 
+    data. Compares key bone positions and distances to identify scale issues 
+    (e.g., cm vs m unit conversion problems).
+
+RELEVANCE: 📚 ARCHIVE - Historical (M2.1 DONE, scale issue fixed)
+    Kept for reference but likely not needed for active development.
+
+MILESTONE: M2.1 (Scale fix - COMPLETED)
+
+USAGE:
+    python diagnose_scale.py
+============================================================================
+"""
 import numpy as np
 from pathlib import Path
 

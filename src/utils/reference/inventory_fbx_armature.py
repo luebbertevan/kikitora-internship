@@ -1,3 +1,27 @@
+"""
+============================================================================
+INVENTORY FBX ARMATURE
+============================================================================
+
+PURPOSE:
+    Analyzes an FBX armature and exports bone information to CSV, including 
+    bone names, parent relationships, bone lengths, number of children, and 
+    whether each bone is an end bone. Used for understanding FBX structure 
+    and creating mappings.
+
+RELEVANCE: 📚 ARCHIVE - Historical (M2 DONE, inventory already created)
+    Kept for reference. Useful if examining new FBX files or debugging 
+    bone structure issues.
+
+MILESTONE: M2 (FBX analysis - COMPLETED)
+
+USAGE:
+    blender --background --python inventory_fbx_armature.py -- <FBX_PATH> <OUT_CSV>
+
+EXAMPLE:
+    blender --background --python inventory_fbx_armature.py -- reference/A-Pose.FBX reference/apose_bones.csv
+============================================================================
+"""
 import bpy
 import csv
 import sys

@@ -1,4 +1,26 @@
-"""Scale the smplh_target_reference.npz to match animation data."""
+"""
+============================================================================
+SCALE REFERENCE
+============================================================================
+
+PURPOSE:
+    Scales the smplh_target_reference.npz file by a given factor to match 
+    animation data scale. Used during M2.1 to fix scale mismatches between 
+    FBX-extracted reference and actual animation data.
+
+RELEVANCE: 📚 ARCHIVE - Historical (M2.1 DONE, scale issue fixed)
+    Kept for reference. The reference has already been scaled correctly. 
+    Useful if scale adjustments are needed in the future.
+
+MILESTONE: M2.1 (Scale fix - COMPLETED)
+
+USAGE:
+    python scale_reference.py [SCALE_FACTOR]
+
+EXAMPLE:
+    python scale_reference.py 0.9
+============================================================================
+"""
 import numpy as np
 from pathlib import Path
 import sys
