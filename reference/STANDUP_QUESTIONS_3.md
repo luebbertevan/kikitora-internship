@@ -24,3 +24,11 @@ When I tried to add rotation standardization, outputs were upside down or incorr
 **Q1**: Do all animations need to face the same direction as the reference? Or is it acceptable for them to keep their original orientations as long as they start at the same position?
 
 **Q2**: If rotation IS required - can you provide visual debugging feedback (screenshots/screen recordings of the incorrect outputs in Blender)?
+
+
+Total frames: Now len(poses) + 1 (572 → 573 for CartWheel)
+
+
+
+
+Voxel captureing on a motion capture stage. TRanslating the mo cap to unreal and training the model in unreal. to understand oclusion we know exactly where the limbs are in the space and so you can score the model acuratly and have precisiion control and motion capture is time consumeing and expencive. then we can train the model on video later against motion capture to refine to video. 
