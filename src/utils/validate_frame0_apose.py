@@ -272,3 +272,8 @@ def main():
 if __name__ == '__main__':
     main()
 
+# Validate a single GLB
+#blender --background --python src/utils/validate_frame0_apose.py -- data/reference/reference_apose_10frames.glb
+
+# Validate all GLBs in a directory
+#blender --background --python src/utils/validate_frame0_apose.py -- data/test_small --limit 3
