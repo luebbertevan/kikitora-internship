@@ -32,3 +32,11 @@ Total frames: Now len(poses) + 1 (572 → 573 for CartWheel)
 
 
 Voxel captureing on a motion capture stage. TRanslating the mo cap to unreal and training the model in unreal. to understand oclusion we know exactly where the limbs are in the space and so you can score the model acuratly and have precisiion control and motion capture is time consumeing and expencive. then we can train the model on video later against motion capture to refine to video. 
+
+
+
+why do we need to weight paint the mesh if you always use the standared a pose? is this becuase the smpl-h is going to be precedurlay modified for training on? 
+
+Also conceptul clarification. if a differently preportioned person is doing an animation wont the standardizatino warp the skeleton animation? A shorter person looks different doing a cartwheel then a taller person different weight shift and physics 
+
+Why glb? 
