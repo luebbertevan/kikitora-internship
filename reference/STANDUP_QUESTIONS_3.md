@@ -70,7 +70,7 @@ Also conceptul clarification. if a differently preportioned person is doing an a
 
 what is the anticipated problem that you mentioned.
 
-what is going on with the glb shape distortion?
+
 
 Why glb? 
 
@@ -91,7 +91,14 @@ SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
 
 more questions
 
-shape 
+what is going on with the glb shape distortion?
+
+is using the rokoko plugin a valid strategy?
+
+How do we find a faithful representation of the original motion capture? What does 'faithful' even mean? surely the original bone lengths are encoded somewhere in the npz.
+Ai is struggling with this. thinks that we cannot find the bone lengths. 
+If the original animation uses a different coordinate system (e.g., Y-up) or different bone directions, the skeleton is wrong, leading to incorrect orientation and movement.
+do we do this already in create glb from npz? i think not
 
 
 
