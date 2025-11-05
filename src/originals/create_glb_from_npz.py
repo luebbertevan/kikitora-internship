@@ -87,29 +87,31 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     R: NDArray[np.float64] = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
     return R
 
-
+# converts a single frame of NPZ animation data to global transformations (4x4) for each joint
 def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -> NDArray[np.float64]:
     """EXACT SAME FUNCTION AS MATPLOTLIB SCRIPT"""
     num_joints: int = len(SMPL_H_PARENTS)
     joint_positions: NDArray[np.float64] = np.zeros((num_joints, 3))
     
     # Reshape poses: (156,) -> (52, 3) for 52 joints
+    # Axis-angle parameters for each joint - directly from the npz file
     pose_params: NDArray[np.float64] = poses.reshape(-1, 3)
     
-    # Global transformation matrices
+    # Global transformation matrices. 4x4 matrix
     global_transforms: List[NDArray[np.float64]] = [np.eye(4) for _ in range(num_joints)]
     
-    for i in range(num_joints):
-        # Local rotation from axis-angle
+    for i in range(num_joints): # for each joint
+        # convert from axis-angle to rotation matrix
         if i < len(pose_params):
+            # rot_mat is a 3x3 rotation matrix
             rot_mat: NDArray[np.float64] = axis_angle_to_rotation_matrix(pose_params[i])
         else:
             rot_mat = np.eye(3)
         
-        # Local transform
+        # create a new local transform:
         local_transform: NDArray[np.float64] = np.eye(4)
-        local_transform[:3, :3] = rot_mat
-        local_transform[:3, 3] = SMPL_OFFSETS[i]
+        local_transform[:3, :3] = rot_mat # use the rotations from the pose/animation data
+        local_transform[:3, 3] = SMPL_OFFSETS[i] # use the local position offsets from hard-coded SMPL-H skeleton at the top of the file
         
         # Global transform
         parent_idx: int = int(SMPL_H_PARENTS[i])
@@ -490,7 +492,10 @@ def process_npz_file(
         cube = add_cube_and_parent(armature, cube_size, cube_location)
     
     # Export to GLB
-    output_path: Path = npz_path.with_suffix('.glb')
+    # Output to comparison folder
+    output_dir = npz_path.parent / "create_glb_output"
+    output_dir.mkdir(exist_ok=True)
+    output_path: Path = output_dir / npz_path.name.replace('.npz', '.glb')
     
     # Select armature and cube (if exists) for export
     bpy.ops.object.select_all(action='DESELECT')

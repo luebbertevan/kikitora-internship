@@ -37,6 +37,61 @@ Voxel captureing on a motion capture stage. TRanslating the mo cap to unreal and
 
 why do we need to weight paint the mesh if you always use the standared a pose? is this becuase the smpl-h is going to be precedurlay modified for training on? 
 
-Also conceptul clarification. if a differently preportioned person is doing an animation wont the standardizatino warp the skeleton animation? A shorter person looks different doing a cartwheel then a taller person different weight shift and physics 
+
+
+what is the difference with the create_glb_from_npz and the original retarget.py.
+create: uses empties and contraints 
+
+there is a important step bwtwe
+retarget creates armature from the old t-pose using joint absolute positions.
+
+What was wrong with the original retargeter/create_glb_from_npz? 
+(besides the scene clearing problem)
+
+feet on ground
+interacting with something(holding something)
+least complex ju
+feet on ground
+hands also on ground
+common approach (oppisite of fk)
+
+positions of the hands!! in space 
+preserver the character of the animtation
+feet on ground
+
+
+Do we need the betas (bone length presets) from the mo cap npz? probably not
+
+My mental model is to just sub in the bone lengths of the reference skeleton do fk and bake into glb and it seems that is the approach in the original retargeter. what is my mental model missing? where is the problem? create_glb seems to do this but just with frame_0
+
+what is your recomendation for the first step? frame 0 a pose? or retargeting bones?
+
+Also conceptul clarification. if a differently preportioned person is doing an animation wont the standardizatino warp the skeleton animation? A shorter person looks different doing a cartwheel then a taller person different weight shift and physics
+
+what is the anticipated problem that you mentioned.
+
+what is going on with the glb shape distortion?
 
 Why glb? 
+
+
+can 
+
+
+
+
+
+create_glb_from_npz.py:
+Creates armature from frame 0 pose (actual animation frame)
+is this using the betas? NO where in the code is this happening?
+# Line 62-68 - Hardcoded reference skeleton
+SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
+
+
+
+more questions
+
+shape 
+
+
+
