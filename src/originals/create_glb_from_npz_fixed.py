@@ -1,0 +1,679 @@
+import bpy
+import numpy as np
+import json
+import sys
+import argparse
+from pathlib import Path
+from typing import Optional, List
+from mathutils import Vector, Matrix, Euler, Quaternion
+from numpy.typing import NDArray
+
+
+# SMPL+H kinematic tree - EXACT SAME AS MATPLOTLIB
+SMPL_H_PARENTS: NDArray[np.int32] = np.array([
+    -1, 0, 0, 0, 1, 2, 3, 4, 5, 6,
+    7, 8, 9, 9, 9, 12, 13, 14, 16, 17,
+    18, 19, 20, 22, 23, 20, 25, 26, 20, 28,
+    29, 20, 31, 32, 20, 34, 35, 21, 37, 38,
+    21, 40, 41, 21, 43, 44, 21, 46, 47, 21,
+    49, 50,
+], dtype=np.int32)
+
+# Joint names - Original correct names
+JOINT_NAMES: List[str] = [
+    "Pelvis", "L_Hip", "R_Hip", "Spine1", "L_Knee", "R_Knee", "Spine2", 
+    "L_Ankle", "R_Ankle", "Spine3", "L_Foot", "R_Foot", "Neck", 
+    "L_Collar", "R_Collar", "Head", "L_Shoulder", "R_Shoulder", 
+    "L_Elbow", "R_Elbow", "L_Wrist", "R_Wrist"
+] + [f"L_Hand_{i}" for i in range(15)] + [f"R_Hand_{i}" for i in range(15)]
+
+# EXACT SAME J_ABSOLUTE AS MATPLOTLIB
+J_ABSOLUTE: NDArray[np.float64] = np.array([
+    [-0.001795, -0.223333, 0.028219], [0.067725, -0.314740, 0.021404],
+    [-0.069466, -0.313855, 0.023899], [-0.004328, -0.114370, 0.001523],
+    [0.102001, -0.689938, 0.016908], [-0.107756, -0.696424, 0.015049],
+    [0.001159, 0.020810, 0.002615], [0.088406, -1.087899, -0.026785],
+    [-0.091982, -1.094839, -0.027263], [0.002616, 0.073732, 0.028040],
+    [0.114764, -1.143690, 0.092503], [-0.117354, -1.142983, 0.096085],
+    [-0.000162, 0.287603, -0.014817], [0.081461, 0.195482, -0.006050],
+    [-0.079143, 0.192565, -0.010575], [0.004990, 0.352572, 0.036532],
+    [0.172438, 0.225951, -0.014918], [-0.175155, 0.225116, -0.019719],
+    [0.432050, 0.213179, -0.042374], [-0.428897, 0.211787, -0.041119],
+    [0.681284, 0.222165, -0.043545], [-0.684196, 0.219560, -0.046679],
+    [0.783767, 0.213183, -0.022054], [0.815568, 0.216115, -0.018788],
+    [0.837963, 0.214387, -0.018140], [0.791063, 0.216050, -0.044867],
+    [0.821578, 0.217270, -0.048936], [0.845128, 0.215785, -0.052425],
+    [0.765890, 0.208316, -0.084165], [0.781693, 0.207917, -0.094992],
+    [0.797572, 0.206667, -0.105123], [0.779095, 0.213415, -0.067855],
+    [0.806930, 0.215059, -0.072228], [0.829592, 0.213672, -0.078705],
+    [0.723217, 0.202218, -0.017008], [0.740918, 0.203986, 0.007192],
+    [0.762150, 0.200379, 0.022060], [-0.783494, 0.210911, -0.022044],
+    [-0.815675, 0.213810, -0.019676], [-0.837971, 0.212032, -0.020059],
+    [-0.791352, 0.214082, -0.045896], [-0.821700, 0.215536, -0.050057],
+    [-0.844837, 0.214110, -0.053971], [-0.767226, 0.205917, -0.086044],
+    [-0.782858, 0.205594, -0.097170], [-0.798573, 0.204555, -0.107284],
+    [-0.779985, 0.211294, -0.069581], [-0.807581, 0.213016, -0.074152],
+    [-0.829999, 0.211622, -0.081116], [-0.722013, 0.199415, -0.016553],
+    [-0.739452, 0.200249, 0.007932], [-0.760794, 0.195263, 0.022366],
+])
+
+
+# Compute RELATIVE offsets - EXACT SAME AS MATPLOTLIB
+SMPL_OFFSETS: NDArray[np.float64] = np.zeros((52, 3))
+for i in range(52):
+    parent_idx = SMPL_H_PARENTS[i]
+    if parent_idx == -1:
+        SMPL_OFFSETS[i] = J_ABSOLUTE[i]
+    else:
+        SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
+
+
+def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Convert axis-angle to rotation matrix using Rodrigues' formula"""
+    angle: float = np.linalg.norm(axis_angle)
+    if angle < 1e-6:
+        return np.eye(3)
+    
+    # Normalize axis
+    axis: NDArray[np.float64] = axis_angle / angle
+    
+    # Rodrigues' rotation formula
+    K: NDArray[np.float64] = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+    
+    R: NDArray[np.float64] = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
+    return R
+
+# converts a single frame of NPZ animation data to global transformations (4x4) for each joint
+def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -> NDArray[np.float64]:
+    """EXACT SAME FUNCTION AS MATPLOTLIB SCRIPT"""
+    num_joints: int = len(SMPL_H_PARENTS)
+    joint_positions: NDArray[np.float64] = np.zeros((num_joints, 3))
+    
+    # Reshape poses: (156,) -> (52, 3) for 52 joints
+    # Axis-angle parameters for each joint - directly from the npz file
+    pose_params: NDArray[np.float64] = poses.reshape(-1, 3)
+    
+    # Global transformation matrices. 4x4 matrix
+    global_transforms: List[NDArray[np.float64]] = [np.eye(4) for _ in range(num_joints)]
+    
+    for i in range(num_joints): # for each joint
+        # convert from axis-angle to rotation matrix
+        if i < len(pose_params):
+            # rot_mat is a 3x3 rotation matrix
+            rot_mat: NDArray[np.float64] = axis_angle_to_rotation_matrix(pose_params[i])
+        else:
+            rot_mat = np.eye(3)
+        
+        # create a new local transform:
+        local_transform: NDArray[np.float64] = np.eye(4)
+        local_transform[:3, :3] = rot_mat # use the rotations from the pose/animation data
+        local_transform[:3, 3] = SMPL_OFFSETS[i] # use the local position offsets from hard-coded SMPL-H skeleton at the top of the file
+        
+        # Global transform
+        parent_idx: int = int(SMPL_H_PARENTS[i])
+        if parent_idx == -1:
+            # Root joint - apply global translation
+            global_transforms[i] = local_transform
+            global_transforms[i][:3, 3] += trans
+        else:
+            global_transforms[i] = global_transforms[parent_idx] @ local_transform
+        
+        joint_positions[i] = global_transforms[i][:3, 3]
+    
+    return joint_positions
+
+
+def clear_all_data_blocks() -> None:
+    """
+    Clear all Blender data blocks to ensure clean state between files.
+    This prevents data block collisions and animation mixing.
+    """
+    # Clear objects first (this removes references)
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+    
+    # Clear data blocks (these persist even after object deletion)
+    # Armatures
+    for armature in list(bpy.data.armatures):
+        bpy.data.armatures.remove(armature)
+    
+    # Actions (animations)
+    for action in list(bpy.data.actions):
+        bpy.data.actions.remove(action)
+    
+    # Meshes
+    for mesh in list(bpy.data.meshes):
+        bpy.data.meshes.remove(mesh)
+    
+    # Materials
+    for material in list(bpy.data.materials):
+        if material.users == 0:  # Only remove unused materials
+            bpy.data.materials.remove(material)
+    
+    # Reset scene frame range
+    bpy.context.scene.frame_start = 0
+    bpy.context.scene.frame_end = 0
+    
+    print("Cleared all data blocks")
+
+
+def apply_json_pose_to_frame0(armature: bpy.types.Object, json_filepath: str) -> None:
+    """
+    Load pose from JSON and apply it to frame 0 of the armature using world-space matrices
+    
+    Args:
+        armature: The armature object
+        json_filepath: Path to the JSON file with pose data
+    """
+    print(f"Loading pose from: {json_filepath}")
+    
+    try:
+        with open(json_filepath, 'r') as f:
+            pose_data = json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: JSON file not found at {json_filepath}. Skipping frame 0 pose override.")
+        return
+    
+    # Set to frame 0
+    bpy.context.scene.frame_set(0)
+    
+    # Switch to pose mode
+    bpy.context.view_layer.objects.active = armature
+    bpy.ops.object.mode_set(mode='POSE')
+    
+    bones_data = pose_data.get('bones', {})
+    
+    if not bones_data:
+        print("Warning: No bones data found in JSON file.")
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return
+    
+    bones_applied = 0
+    # Apply pose using world-space matrix for accurate positioning
+    for bone_name, bone_info in bones_data.items():
+        pose_bone = armature.pose.bones.get(bone_name)
+        
+        if pose_bone and 'pose' in bone_info:
+            pose_info = bone_info['pose']
+            
+            # Use matrix_world if available (most accurate)
+            if 'matrix_world' in pose_info:
+                # Convert list to Matrix
+                matrix_data = pose_info['matrix_world']
+                target_matrix: Matrix = Matrix([
+                    matrix_data[0],
+                    matrix_data[1],
+                    matrix_data[2],
+                    matrix_data[3]
+                ])
+                
+                # Set the pose bone's matrix directly
+                pose_bone.matrix = target_matrix
+                bones_applied += 1
+                
+            else:
+                # Fallback to local transforms if matrix_world not available
+                if 'location' in pose_info:
+                    pose_bone.location = Vector(pose_info['location'])
+                
+                if 'rotation_quaternion' in pose_info:
+                    pose_bone.rotation_mode = 'QUATERNION'
+                    pose_bone.rotation_quaternion = Quaternion(pose_info['rotation_quaternion'])
+                elif 'rotation_euler' in pose_info:
+                    rotation_mode = pose_info.get('rotation_mode', 'XYZ')
+                    pose_bone.rotation_mode = rotation_mode
+                    pose_bone.rotation_euler = Euler(pose_info['rotation_euler'], rotation_mode)
+                
+                bones_applied += 1
+            
+            # Force update
+            bpy.context.view_layer.update()
+            
+            # Keyframe the result - use visual keying to capture final transform
+            pose_bone.keyframe_insert(data_path="location", frame=0, options={'INSERTKEY_VISUAL'})
+            
+            # Keyframe rotation in whatever mode the bone is in
+            if pose_bone.rotation_mode == 'QUATERNION':
+                pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=0, options={'INSERTKEY_VISUAL'})
+            else:
+                pose_bone.keyframe_insert(data_path="rotation_euler", frame=0, options={'INSERTKEY_VISUAL'})
+    
+    bpy.ops.object.mode_set(mode='OBJECT')
+    print(f"JSON pose applied to frame 0! ({bones_applied} bones updated)")
+
+
+
+
+def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
+    """
+    Add a cube mesh and parent it to the armature
+    
+    Args:
+        armature: The armature object to parent the cube to
+        cube_size: Size of the cube (default: 1.0)
+        cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
+        
+    Returns:
+        The created cube object
+    """
+    # Add cube mesh
+    bpy.ops.mesh.primitive_cube_add(
+        size=cube_size,
+        location=cube_location
+    )
+    
+    # Get the cube object (it's selected after creation)
+    cube: bpy.types.Object = bpy.context.active_object
+    cube.name = "ParentedCube"
+    
+    # Clear selection
+    bpy.ops.object.select_all(action='DESELECT')
+    
+    # Select cube and armature
+    cube.select_set(True)
+    armature.select_set(True)
+    
+    # Set armature as active
+    bpy.context.view_layer.objects.active = armature
+    
+    # Parent cube to armature
+    bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+    
+    print(f"Cube '{cube.name}' (size: {cube_size}) parented to armature '{armature.name}' at location {cube_location}")
+    
+    return cube
+
+
+def process_npz_file(
+    npz_path: Path, 
+    json_pose_path: Optional[str] = None,
+    add_cube: bool = False,
+    cube_size: float = 1.0,
+    cube_location: tuple[float, float, float] = (0.0, 0.0, 0.0)
+) -> None:
+    """
+    Process a single NPZ file and export to GLB
+    
+    Args:
+        npz_path: Path to the NPZ file to process
+        json_pose_path: Optional path to JSON pose file to override frame 0 after baking
+        add_cube: Whether to add a cube parented to the armature (default: False)
+        cube_size: Size of the cube to add (default: 1.0)
+        cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
+    """
+    print(f"\n{'='*80}")
+    print(f"Processing: {npz_path}")
+    print(f"{'='*80}")
+    
+    # Clear ALL data blocks (not just objects) - FIXED
+    clear_all_data_blocks()
+    
+    # Load NPZ file
+    data = np.load(str(npz_path))
+    poses: NDArray[np.float64] = data['poses']
+    trans: NDArray[np.float64] = data['trans']
+    
+    # Get framerate (default to 60 if not present)
+    framerate: float = float(data.get('mocap_framerate', 60))
+    
+    print(f"Loaded {len(poses)} frames at {framerate} fps")
+    print(f"Poses shape: {poses.shape}")
+    print(f"Trans shape: {trans.shape}")
+    
+    # Compute joint positions for first frame to create armature - THIS IS CRITICAL!
+    # Using actual frame 0 pose data instead of T-pose ensures correct bone orientations
+    joint_positions_frame0: NDArray[np.float64] = forward_kinematics(poses[0], trans[0])
+    print("Using frame 0 pose (from FK) for armature creation")
+    
+    # Create armature with UNIQUE name per file - FIXED
+    unique_name = f"SMPL_H_Armature_{npz_path.stem}"
+    armature_data = bpy.data.armatures.new(unique_name)
+    armature: bpy.types.Object = bpy.data.objects.new(unique_name, armature_data)
+    bpy.context.collection.objects.link(armature)
+    bpy.context.view_layer.objects.active = armature
+    
+    # Create bones
+    bpy.ops.object.mode_set(mode='EDIT')
+    edit_bones = armature.data.edit_bones
+    bone_list: List[bpy.types.EditBone] = []
+    
+    for i in range(52):
+        bone = edit_bones.new(JOINT_NAMES[i] if i < len(JOINT_NAMES) else f"Joint_{i}")
+        bone.head = Vector(joint_positions_frame0[i])
+        
+        # Set tail pointing toward first child or slightly offset
+        children: List[int] = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
+        if children:
+            # Special case for pelvis (has 3 children: L_Hip, R_Hip, Spine1)
+            if i == 0:
+                # Point pelvis upward toward spine
+                bone.tail = Vector(joint_positions_frame0[3])  # Spine1
+            else:
+                bone.tail = Vector(joint_positions_frame0[children[0]])
+        else:
+            # End bones - point in a sensible direction
+            bone.tail = Vector(joint_positions_frame0[i]) + Vector((0, 0.05, 0))
+        
+        bone_list.append(bone)
+    
+    # Set parent relationships
+    for i in range(52):
+        parent_idx: int = int(SMPL_H_PARENTS[i])
+        if parent_idx != -1:
+            bone_list[i].parent = bone_list[parent_idx]
+    
+    # Switch to object mode
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # Set frame range
+    bpy.context.scene.frame_start = 0
+    bpy.context.scene.frame_end = len(poses) - 1
+    bpy.context.scene.render.fps = int(framerate)
+    
+    print("Creating empties and animation...")
+    
+    # Create empties for each joint to hold the computed positions with UNIQUE names - FIXED
+    empties: List[bpy.types.Object] = []
+    for i in range(52):
+        joint_name: str = JOINT_NAMES[i] if i < len(JOINT_NAMES) else f"Joint_{i}"
+        empty_name = f"Empty_{unique_name}_{joint_name}"
+        empty = bpy.data.objects.new(empty_name, None)
+        bpy.context.collection.objects.link(empty)
+        empty.empty_display_size = 0.02
+        empties.append(empty)
+    
+    # Animate empties using computed forward kinematics - ALL FRAMES PROCESSED THE SAME WAY
+    frame_skip: int = 1  # Keyframe every frame
+    print("Processing all frames with forward kinematics (no special frame 0 handling)...")
+    for frame_idx in range(0, len(poses), frame_skip):
+        bpy.context.scene.frame_set(frame_idx)
+        
+        # Compute joint positions using EXACT SAME forward kinematics
+        joint_positions: NDArray[np.float64] = forward_kinematics(poses[frame_idx], trans[frame_idx])
+        
+        # Set empty positions
+        for i in range(52):
+            empties[i].location = Vector(joint_positions[i])
+            empties[i].keyframe_insert(data_path="location", frame=frame_idx)
+        
+        if frame_idx % 100 == 0:
+            print(f"  Processed frame {frame_idx}/{len(poses)}")
+    
+    print("Empties animation complete!")
+    
+    # Now add constraints to make armature track the empties
+    print("Adding constraints to armature...")
+    
+    bpy.context.view_layer.objects.active = armature
+    armature.select_set(True)
+    bpy.ops.object.mode_set(mode='POSE')
+    pose_bones = armature.pose.bones
+    
+    # Add constraints to each bone to track its empty
+    for i in range(52):
+        joint_name = JOINT_NAMES[i] if i < len(JOINT_NAMES) else f"Joint_{i}"
+        pose_bone = pose_bones.get(joint_name)
+        
+        if pose_bone:
+            # Find children
+            children = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
+            
+            # Root bone (Pelvis) - special handling
+            if i == 0:
+                # Copy location
+                constraint = pose_bone.constraints.new('COPY_LOCATION')
+                constraint.target = empties[i]
+                constraint.name = "Track_Root_Location"
+                
+                # Stretch toward Spine1 to show the main trunk connection
+                stretch_constraint = pose_bone.constraints.new('STRETCH_TO')
+                stretch_constraint.target = empties[3]  # Spine1
+                stretch_constraint.name = "Track_To_Spine1"
+                stretch_constraint.rest_length = 0.0
+                stretch_constraint.bulge = 0.0
+                stretch_constraint.keep_axis = 'SWING_Y'
+            
+            # End bones (no children) - only use damped track for orientation
+            elif len(children) == 0:
+                # Special handling for specific problematic end bones
+                joint_name = JOINT_NAMES[i] if i < len(JOINT_NAMES) else f"Joint_{i}"
+                
+                # Head and all finger end bones - copy rotation from parent
+                if i == 15 or (i >= 22 and i <= 51):  # Head or any hand bone
+                    parent_idx = int(SMPL_H_PARENTS[i])
+                    if parent_idx >= 0:
+                        parent_name: str = JOINT_NAMES[parent_idx] if parent_idx < len(JOINT_NAMES) else f"Joint_{parent_idx}"
+                        parent_bone = pose_bones.get(parent_name)
+                        if parent_bone:
+                            rot_constraint = pose_bone.constraints.new('COPY_ROTATION')
+                            rot_constraint.target = armature
+                            rot_constraint.subtarget = parent_name
+                            rot_constraint.name = "Copy_Parent_Rotation"
+                # R_Foot needs negative Y tracking
+                elif i == 11:  # R_Foot
+                    track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
+                    track_constraint.target = empties[i]
+                    track_constraint.name = "Track_Self_Neg"
+                    track_constraint.track_axis = 'TRACK_NEGATIVE_Y'
+                else:
+                    # Normal end bones (L_Foot and others)
+                    track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
+                    track_constraint.target = empties[i]
+                    track_constraint.name = "Track_Self"
+                    track_constraint.track_axis = 'TRACK_Y'
+            
+            # Regular bones with children
+            else:
+                # Bone should point toward its first child
+                child_idx: int = children[0]
+                constraint = pose_bone.constraints.new('STRETCH_TO')
+                constraint.target = empties[child_idx]
+                constraint.name = f"Track_To_Child_{child_idx}"
+                constraint.rest_length = 0.0
+                constraint.bulge = 0.0
+                constraint.keep_axis = 'SWING_Y'
+    
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    print("Armature constraints added!")
+    
+    # Bake constraints to keyframes on the armature
+    print("Baking constraints to keyframes on armature bones...")
+    
+    bpy.context.view_layer.objects.active = armature
+    armature.select_set(True)
+    bpy.ops.object.mode_set(mode='POSE')
+    
+    # Select all bones
+    for bone in armature.pose.bones:
+        bone.bone.select = True
+    
+    # Create a new action with unique name - FIXED
+    action_name = f"Action_{unique_name}"
+    action = bpy.data.actions.new(action_name)
+    armature.data.animation_data_create()
+    armature.data.animation_data.action = action
+    
+    # Bake the animation
+    bpy.ops.nla.bake(
+        frame_start=0,
+        frame_end=len(poses) - 1,
+        step=1,
+        only_selected=True,
+        visual_keying=True,
+        clear_constraints=True,  # Clear constraints after baking
+        clear_parents=False,
+        use_current_action=True,
+        bake_types={'POSE'}
+    )
+    
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    print("Baking complete! All bones now have keyframes on every frame.")
+    
+    # Apply JSON pose to frame 0 if provided (overrides the baked frame 0)
+    if json_pose_path:
+        print("\nApplying JSON pose to frame 0...")
+        apply_json_pose_to_frame0(armature, json_pose_path)
+    
+    # Delete empties after baking (no longer needed)
+    print("Removing empties...")
+    for empty in empties:
+        bpy.data.objects.remove(empty, do_unlink=True)
+    
+    print("Empties removed. Ready for export.")
+    
+    # Add cube if requested
+    cube: Optional[bpy.types.Object] = None
+    if add_cube:
+        cube = add_cube_and_parent(armature, cube_size, cube_location)
+    
+    # Export to GLB
+    # Output to comparison folder
+    output_dir = npz_path.parent / "create_glb_output"
+    output_dir.mkdir(exist_ok=True)
+    output_path: Path = output_dir / npz_path.name.replace('.npz', '.glb')
+    
+    # Select armature and cube (if exists) for export
+    bpy.ops.object.select_all(action='DESELECT')
+    armature.select_set(True)
+    if cube:
+        cube.select_set(True)
+    bpy.context.view_layer.objects.active = armature
+    
+    bpy.ops.export_scene.gltf(
+        filepath=str(output_path),
+        export_format='GLB',
+        use_selection=True,
+        export_animations=True,
+        export_skins=True,
+        export_all_influences=False,
+        export_def_bones=False,
+        export_optimize_animation_size=True,
+        export_anim_single_armature=True,
+        export_bake_animation=False,
+        export_apply=False
+    )
+    
+    print(f"Successfully exported to: {output_path}")
+
+
+def find_npz_files(folder_path: Path) -> List[Path]:
+    """
+    Recursively find all .npz files in a folder
+    
+    Args:
+        folder_path: Path to the folder to search
+        
+    Returns:
+        List of paths to .npz files
+    """
+    return sorted(folder_path.rglob("*.npz"))
+
+
+def main() -> None:
+    """Main entry point for batch processing"""
+    # Parse command-line arguments
+    # Blender passes arguments after "--" to the script
+    argv = sys.argv
+    if "--" in argv:
+        argv = argv[argv.index("--") + 1:]
+    else:
+        argv = []
+    
+    parser = argparse.ArgumentParser(
+        description="Batch process NPZ files to GLB format with SMPL+H armature (FIXED: proper scene clearing)"
+    )
+    parser.add_argument(
+        "input_folder",
+        type=str,
+        help="Path to folder containing NPZ files (will search recursively)"
+    )
+    parser.add_argument(
+        "--json-pose",
+        type=str,
+        default=None,
+        help="Optional path to JSON pose file to override frame 0 after baking"
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit the number of files to process (for testing)"
+    )
+    parser.add_argument(
+        "--add-cube",
+        action="store_true",
+        help="Add a cube mesh parented to the armature before export"
+    )
+    parser.add_argument(
+        "--cube-size",
+        type=float,
+        default=1.0,
+        help="Size of the cube to add (default: 1.0)"
+    )
+    parser.add_argument(
+        "--cube-location",
+        type=float,
+        nargs=3,
+        default=[0.0, 0.0, 0.0],
+        metavar=("X", "Y", "Z"),
+        help="Location of the cube as X Y Z coordinates (default: 0 0 0)"
+    )
+    
+    args = parser.parse_args(argv)
+    
+    # Convert to Path object
+    input_folder = Path(args.input_folder)
+    
+    if not input_folder.exists():
+        print(f"Error: Input folder does not exist: {input_folder}")
+        sys.exit(1)
+    
+    if not input_folder.is_dir():
+        print(f"Error: Input path is not a directory: {input_folder}")
+        sys.exit(1)
+    
+    # Find all NPZ files
+    npz_files = find_npz_files(input_folder)
+    
+    if not npz_files:
+        print(f"No NPZ files found in {input_folder}")
+        sys.exit(0)
+    
+    # Apply limit if specified
+    if args.limit:
+        npz_files = npz_files[:args.limit]
+    
+    print(f"\nFound {len(npz_files)} NPZ file(s) to process")
+    
+    # Process each file
+    for idx, npz_file in enumerate(npz_files, 1):
+        print(f"\n[{idx}/{len(npz_files)}] Processing: {npz_file.name}")
+        try:
+            process_npz_file(
+                npz_file, 
+                args.json_pose,
+                args.add_cube,
+                args.cube_size,
+                tuple(args.cube_location)
+            )
+            print(f"✓ Successfully processed {npz_file.name}")
+        except Exception as e:
+            print(f"✗ Error processing {npz_file.name}: {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+    
+    print(f"\n{'='*80}")
+    print(f"Batch processing complete! Processed {len(npz_files)} file(s)")
+    print(f"{'='*80}")
+
+
+if __name__ == "__main__":
+    main()
+

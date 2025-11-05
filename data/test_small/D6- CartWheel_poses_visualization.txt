@@ -1,0 +1,91 @@
+================================================================================
+ANIMATION NPZ FILE DATA STRUCTURES
+================================================================================
+File: D6- CartWheel_poses.npz
+Path: data/test_small/D6- CartWheel_poses.npz
+Keys in NPZ: ['trans', 'gender', 'mocap_framerate', 'betas', 'dmpls', 'poses']
+
+================================================================================
+DATA STRUCTURE OVERVIEW
+================================================================================
+This NPZ file contains animation data with the following keys:
+  - trans: shape (572, 3), dtype float64
+  - gender: shape (), dtype <U6
+  - mocap_framerate: shape (), dtype float64
+  - betas: shape (16,), dtype float64
+  - dmpls: shape (572, 8), dtype float64
+  - poses: shape (572, 156), dtype float64
+
+================================================================================
+1. poses - Axis-Angle Rotations
+================================================================================
+Shape: (572, 156)  (num_frames × 156)
+  156 = 52 joints × 3 axis-angle values per joint
+Dtype: float64
+Units: radians (angle = magnitude of axis-angle vector)
+Meaning: Joint rotations for all frames
+Layout: Each row is one frame, values are: [joint0_x, joint0_y, joint0_z, joint1_x, ...]
+
+Example - Frame 0, first 5 joints:
+Joint                Axis-Angle [X, Y, Z]                              
+--------------------------------------------------------------------------------
+Pelvis               [  1.1779,  -1.1894,  -1.2451]
+L_Hip                [  0.1604,   0.0028,  -0.0349]
+R_Hip                [  0.1524,  -0.0515,   0.0055]
+Spine1               [  0.1017,   0.0335,   0.0091]
+L_Knee               [ -0.1366,  -0.1512,   0.0518]
+
+================================================================================
+2. trans - Root Translation
+================================================================================
+Shape: (572, 3)  (num_frames × 3)
+Dtype: float64
+Units: meters
+Meaning: Pelvis (root bone) position in world space for each frame
+Layout: Each row is one frame: [X, Y, Z]
+
+First 10 frames:
+Frame    X (m)        Y (m)        Z (m)       
+--------------------------------------------------
+0        2.043416     0.814997     0.952296    
+1        2.043185     0.814793     0.952301    
+2        2.042935     0.814476     0.952249    
+3        2.042574     0.814192     0.952162    
+4        2.042223     0.814049     0.952109    
+5        2.041994     0.813968     0.952088    
+6        2.041854     0.813727     0.952135    
+7        2.041556     0.813438     0.952193    
+8        2.041067     0.813220     0.952138    
+9        2.040531     0.812952     0.952050    
+
+================================================================================
+3. mocap_framerate
+================================================================================
+Value: 120.0 fps
+Dtype: <class 'numpy.ndarray'>
+Meaning: Frame rate of the motion capture data
+
+Derived info:
+  Number of frames: 572
+  Duration: 4.77 seconds
+
+================================================================================
+OTHER KEYS (not used in retargeting pipeline)
+================================================================================
+
+gender:
+  Shape: ()
+  Dtype: <U6
+  Values: female
+
+betas:
+  Shape: (16,)
+  Dtype: float64
+  Values: [ 0.69818753 -0.64637713  1.26714376 -1.82165528  0.45873531 -1.66775804
+ -1.77631272  1.14475818 -0.63871133 -1.98378332 -1.77953933 -1.72710762
+ -1.62626482 -0.25207064  2.81451446 -0.84926949]
+
+dmpls:
+  Shape: (572, 8)
+  Dtype: float64
+  First few values: [ 0.2266897   0.88829341 -0.52870356 -1.32026496  0.90496364] ...

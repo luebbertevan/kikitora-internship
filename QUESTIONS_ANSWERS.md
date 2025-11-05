@@ -18,8 +18,6 @@
 -   **Why**: Compact representation (3 numbers vs 9 for rotation matrix, 4 for quaternion)
 -   **Conversion**: Converts to rotation matrix using Rodrigues' formula (see `axis_angle_to_rotation_matrix()`)
 
-
-
 **Root Translation:**
 
 -   **What**: The pelvis (root bone) position in world space
@@ -451,6 +449,305 @@ else:
 -   "Animations are aligned to reference A-pose but maintain original motion characteristics"
 -   "Proportion differences between source and target are not currently scaled"
 -   "This works best when source person has similar proportions to standard skeleton"
+
+---
+
+---
+
+## 📦 NPZ File Data Structures
+
+### Reference NPZ File: `smplh_target_reference.npz`
+
+**Location**: `data/reference/smplh_target_reference.npz`
+
+**Keys (3 total)**:
+
+1. **`J_ABSOLUTE`** - Shape: `(52, 3)`, Dtype: `float64`
+
+    - **What**: Absolute joint positions in A-pose
+    - **Format**: 52 joints × 3 coordinates (X, Y, Z in meters)
+    - **Example**: `J_ABSOLUTE[0] = [0.0, 0.0, 0.99]` = Pelvis at (0, 0, 0.99m)
+    - **Used for**: Reference alignment, validation, creating reference GLBs
+
+2. **`SMPL_OFFSETS`** - Shape: `(52, 3)`, Dtype: `float64`
+
+    - **What**: Relative offsets from parent to child joint
+    - **Format**: 52 joints × 3 coordinates (X, Y, Z in meters)
+    - **For root (Pelvis)**: `SMPL_OFFSETS[0] = J_ABSOLUTE[0]` (absolute position)
+    - **For children**: `SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent]` (relative offset)
+    - **Used for**: Forward kinematics computation (bone lengths/directions)
+
+3. **`JOINT_NAMES`** - Shape: `(52,)`, Dtype: string array
+    - **What**: Joint names matching the 52 indices
+    - **Format**: Array of 52 strings like `["Pelvis", "L_Hip", "R_Hip", ...]`
+    - **Used for**: Reference/mapping, debugging
+
+**Summary**: This file contains the target A-pose skeleton structure - where joints should be positioned and their relative offsets.
+
+---
+
+### Animation NPZ File: AMASS Data (e.g., `D6- CartWheel_poses.npz`)
+
+**Location**: `data/test_small/`, `data/extracted/`, etc.
+
+**Keys (6 total)**:
+
+1. **`poses`** - Shape: `(num_frames, 156)`, Dtype: `float64`
+
+    - **What**: Axis-angle rotations for all joints, all frames
+    - **Format**: `num_frames × 156` where `156 = 52 joints × 3 axis-angle values`
+    - **Structure**: Each row is one frame, each frame has 156 values
+    - **Layout**: `[joint0_x, joint0_y, joint0_z, joint1_x, joint1_y, joint1_z, ...]`
+    - **Example**: `poses[0][0:3]` = Pelvis axis-angle for frame 0
+    - **Used for**: Forward kinematics to compute joint positions
+
+2. **`trans`** - Shape: `(num_frames, 3)`, Dtype: `float64`
+
+    - **What**: Root (pelvis) translation per frame
+    - **Format**: `num_frames × 3` coordinates (X, Y, Z in meters)
+    - **Example**: `trans[0] = [2.04, 0.81, 0.95]` = Pelvis position at frame 0
+    - **Used for**: Root bone positioning in forward kinematics
+
+3. **`mocap_framerate`** - Shape: `()`, Dtype: `float64`
+
+    - **What**: Frame rate of the motion capture data
+    - **Format**: Single scalar value (e.g., 30.0, 60.0)
+    - **Example**: `60.0` = 60 frames per second
+    - **Used for**: Setting animation playback speed
+
+4. **`gender`** - Shape: `()`, Dtype: string
+
+    - **What**: Gender of the subject (SMPL model parameter)
+    - **Format**: Single string (e.g., `"male"`, `"female"`, `"neutral"`)
+    - **Note**: Not used in current retargeting pipeline
+
+5. **`betas`** - Shape: `(16,)`, Dtype: `float64`
+
+    - **What**: SMPL body shape parameters (PCA coefficients)
+    - **Format**: 16 values representing body shape variations
+    - **Note**: Not used in current retargeting pipeline (uses fixed skeleton)
+
+6. **`dmpls`** - Shape: `(num_frames, 8)`, Dtype: `float64`
+    - **What**: DMPL (Dynamic Muscle Parameters) coefficients
+    - **Format**: `num_frames × 8` values for muscle deformation
+    - **Note**: Not used in current retargeting pipeline
+
+**Summary**: Animation files contain pose parameters (`poses`) and root translation (`trans`) for all frames, plus metadata. The retargeting pipeline only uses `poses`, `trans`, and `mocap_framerate`.
+
+---
+
+### Key Differences
+
+| Aspect              | Reference NPZ                               | Animation NPZ                                                   |
+| ------------------- | ------------------------------------------- | --------------------------------------------------------------- |
+| **Purpose**         | Defines target A-pose skeleton              | Contains animation data                                         |
+| **Keys**            | `J_ABSOLUTE`, `SMPL_OFFSETS`, `JOINT_NAMES` | `poses`, `trans`, `mocap_framerate`, `gender`, `betas`, `dmpls` |
+| **Frames**          | Single pose (no frames)                     | Multiple frames (e.g., 572 frames)                              |
+| **Joint positions** | Absolute positions (A-pose)                 | Computed from poses via FK                                      |
+| **Used for**        | Alignment target, validation                | Animation source data                                           |
+
+---
+
+### What Each Key Actually Contains
+
+**Reference NPZ**:
+
+```python
+{
+    'J_ABSOLUTE': np.array([[x0, y0, z0], [x1, y1, z1], ...]),  # 52×3
+    'SMPL_OFFSETS': np.array([[dx0, dy0, dz0], ...]),           # 52×3
+    'JOINT_NAMES': np.array(['Pelvis', 'L_Hip', ...])           # 52 strings
+}
+```
+
+**Animation NPZ**:
+
+```python
+{
+    'poses': np.array([[frame0_156_values], [frame1_156_values], ...]),  # num_frames×156
+    'trans': np.array([[x0, y0, z0], [x1, y1, z1], ...]),                # num_frames×3
+    'mocap_framerate': 60.0,                                              # scalar
+    'gender': 'male',                                                     # string
+    'betas': np.array([b0, b1, ..., b15]),                                # 16 values
+    'dmpls': np.array([[d0, d1, ..., d7], ...])                          # num_frames×8
+}
+```
+
+**That's it!** These are the actual data structures stored in the NPZ files.
+
+---
+
+### NPZ File Design Questions
+
+**Q: What does "J" stand for in `J_ABSOLUTE`?**
+
+**A:** "J" stands for **Joint**. `J_ABSOLUTE` = Joint Absolute positions. This is a common naming convention in computer graphics/animation where `J` represents joints.
+
+---
+
+**Q: Why do we need absolute positions (`J_ABSOLUTE`) if we're just going to do FK using the offsets (`SMPL_OFFSETS`)?**
+
+**A:** Great question! You're right that we calculate offsets from `J_ABSOLUTE`, but we need both for different reasons:
+
+1. **`J_ABSOLUTE` is needed for:**
+
+    - **Validation**: Checking if frame 0 matches the reference A-pose (compare computed positions to `J_ABSOLUTE`)
+    - **Root alignment**: Setting the pelvis position to match reference (M3 milestone)
+    - **Frame 0 override**: Setting frame 0 to exactly match reference A-pose (M4 milestone)
+    - **Visual reference**: Creating reference GLBs for comparison
+
+2. **`SMPL_OFFSETS` is needed for:**
+    - **Forward kinematics**: Actually computing joint positions from pose parameters
+    - **Bone lengths**: The offsets define the bone lengths/directions in the skeleton
+
+Think of it this way: `J_ABSOLUTE` is the "answer key" (where joints should be), while `SMPL_OFFSETS` is the "recipe" (how to get there from FK). You need both because validation/alignment needs the target positions, but FK needs the relative offsets.
+
+---
+
+**Q: Why are the NPZ files so different between reference and animation? Don't they just describe frames? Like the reference just describes one frame?**
+
+**A:** Yes, the reference describes one frame (the A-pose), but the **data structures are fundamentally different** because they serve different purposes:
+
+| Aspect          | Reference NPZ                      | Animation NPZ                         |
+| --------------- | ---------------------------------- | ------------------------------------- |
+| **Purpose**     | Define target skeleton structure   | Encode motion data                    |
+| **Data type**   | Joint positions (where joints are) | Pose parameters (how to rotate bones) |
+| **Frame count** | 1 pose (static)                    | Many frames (temporal)                |
+| **Use case**    | Target/goal to match               | Source data to process                |
+
+**Why they're different:**
+
+1. **Reference NPZ = "What we want"** (target state)
+
+    - Stores **joint positions** directly (where joints should be in A-pose)
+    - Single pose (no animation)
+    - Explicit skeleton definition
+
+2. **Animation NPZ = "What we have"** (source data)
+    - Stores **pose parameters** (axis-angle rotations) that need FK to compute positions
+    - Many frames (temporal motion)
+    - Assumes standard SMPL-H skeleton structure
+
+They're different because one is a **target** (positions) and one is **source data** (rotations that produce positions).
+
+---
+
+**Q: How do the keys of the reference A-pose NPZ relate to the keys in the animation NPZ? Why doesn't the reference NPZ look like the animation NPZ with the same or similar keys?**
+
+**A:** They don't map directly because they represent different things:
+
+**Reference NPZ keys:**
+
+-   `J_ABSOLUTE` = Joint positions (where joints are)
+-   `SMPL_OFFSETS` = Bone offsets (skeleton structure)
+-   `JOINT_NAMES` = Joint names (reference/mapping)
+
+**Animation NPZ keys:**
+
+-   `poses` = Rotations (how to rotate bones)
+-   `trans` = Root translation (where pelvis is)
+-   `mocap_framerate` = Playback speed
+
+**Why they don't match:**
+
+1. **Reference = "positions"**, Animation = "rotations + translation"
+
+    - To get positions from animation, you must run FK: `poses` + `trans` + `SMPL_OFFSETS` → joint positions
+    - Reference already has positions, so no FK needed
+
+2. **Reference = "one frame"**, Animation = "many frames"
+
+    - Reference is static (one pose), so no need for `poses` array
+    - Animation is temporal (many frames), so needs `poses` array
+
+3. **Reference = "explicit skeleton"**, Animation = "assumes standard skeleton"
+    - Reference defines the skeleton structure (`JOINT_NAMES`, `SMPL_OFFSETS`)
+    - Animation assumes you already know the SMPL-H skeleton structure
+
+**The relationship:**
+
+-   If you run FK on `poses[0]` + `trans[0]` using `SMPL_OFFSETS` from reference, you should get positions close to `J_ABSOLUTE` (for frame 0 A-pose after retargeting).
+
+---
+
+**Q: Why does the reference NPZ have 3 keys to describe one frame when it seems that `poses` and `trans` describe all that information?**
+
+**A:** This is a key insight! Here's why:
+
+**Animation NPZ (`poses` + `trans`):**
+
+-   `poses` = rotations only (relative bone orientations)
+-   `trans` = root position only
+-   **Missing**: Bone lengths/skeleton structure (assumed to be standard SMPL-H)
+
+**Reference NPZ (`J_ABSOLUTE` + `SMPL_OFFSETS` + `JOINT_NAMES`):**
+
+-   `J_ABSOLUTE` = absolute positions (explicit target)
+-   `SMPL_OFFSETS` = bone lengths/directions (skeleton structure)
+-   `JOINT_NAMES` = joint mapping (reference)
+
+**Why reference needs 3 keys:**
+
+1. **`J_ABSOLUTE`**: The "answer key" - where joints should be in A-pose
+
+    - Used for validation: "Does frame 0 match this?"
+    - Used for alignment: "Set pelvis to this position"
+
+2. **`SMPL_OFFSETS`**: The skeleton structure (bone lengths)
+
+    - Used for FK: "How do I compute child positions from parent?"
+    - This is the same structure used in animation FK
+
+3. **`JOINT_NAMES`**: Joint mapping
+    - Used for debugging, validation, reference
+    - Makes the data human-readable
+
+**Why not just `poses` + `trans`?**
+
+-   You'd need to compute `poses` from `J_ABSOLUTE` (inverse FK), which is complex
+-   `J_ABSOLUTE` is more direct for validation/alignment
+-   `SMPL_OFFSETS` is needed for FK anyway (bone lengths)
+-   Reference is meant to be explicit and easy to validate against
+
+**Analogy:**
+
+-   Animation NPZ = "Recipe" (`poses` = how to rotate, `trans` = where to start)
+-   Reference NPZ = "Picture + Measurements" (`J_ABSOLUTE` = what it should look like, `SMPL_OFFSETS` = measurements needed)
+
+---
+
+**Q: Why does the animation NPZ not have to describe joint names and parent mappings? Is it because this is standardized and thus implied?**
+
+**A:** Exactly right! The animation NPZ assumes the **standard SMPL-H skeleton structure**:
+
+1. **Standardized skeleton**: All AMASS data uses the same SMPL-H skeleton (52 joints, same hierarchy, same joint order)
+2. **Implied structure**: The `poses` array order (156 values = 52 joints × 3) implies the joint order
+3. **Known parent mapping**: The SMPL-H parent-child relationships are standard and hardcoded in the code
+
+**Where is this defined?**
+
+-   The parent mapping (`SMPL_H_PARENTS`) is defined in the code (e.g., `retarget.py`, `create_glb_from_npz.py`)
+-   The joint names (`JOINT_NAMES`) are also defined in the code
+-   The `poses` array layout assumes this standard order
+
+**Why reference NPZ includes it:**
+
+-   Reference NPZ is **self-contained** - it doesn't assume you have the code
+-   It's meant to be a **portable reference** that can be validated independently
+-   It makes the data explicit and human-readable
+
+**Summary**: Animation NPZ relies on "you know SMPL-H", while reference NPZ is "here's everything explicitly defined".
+
+---
+
+**Q: What about `betas` and `dmpls`? Are they relevant?**
+
+**A:** Not relevant for the current retargeting pipeline. Quick explanation:
+
+-   **`betas`**: SMPL body shape parameters (16 PCA coefficients) - controls body proportions like height, weight distribution, etc. Not used because we use a fixed skeleton.
+-   **`dmpls`**: Dynamic Muscle Parameters (8 coefficients per frame) - controls muscle deformation/bulging. Not used because we only retarget the skeleton, not the mesh.
+
+You can safely ignore these for now. They're part of the full SMPL model but not needed for skeleton retargeting.
 
 ---
 

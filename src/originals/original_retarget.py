@@ -283,7 +283,10 @@ def process_npz_file(npz_path: Path) -> None:
     retarget_animation(armature, poses, trans)
     
     # Export
-    output_path = npz_path.with_suffix('.glb')
+    # Output to comparison folder
+    output_dir = npz_path.parent / "original_retarget_output"
+    output_dir.mkdir(exist_ok=True)
+    output_path = output_dir / npz_path.name.replace('.npz', '.glb')
     bpy.ops.object.select_all(action='DESELECT')
     armature.select_set(True)
     bpy.context.view_layer.objects.active = armature
