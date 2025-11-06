@@ -1,0 +1,694 @@
+This is from a different chat gpt conversation.
+
+I want to try and solve my retargeting project using other tools because it is very difficult to do it by hand. the math involved is confusing and overwhelming and it seem like there are already other tools that have solved this problem like rokoko https://support.rokoko.com/hc/en-us/articles/4410463481489-Retarget-an-animation-in-Blender 
+
+
+
+Here is the contraits of the project. I have two npz files both that describe an smpl-h format. one with ta standard skeleton that o need to map all the motion capture data on and one with the original motion capture data. I need to take a npz file that describes the motion capture animation. this is encoded with this data
+
+**Animation NPZ**:
+
+
+python
+{
+    'poses': np.array([[frame0_156_values], [frame1_156_values], ...]),  # num_frames×156
+    'trans': np.array([[x0, y0, z0], [x1, y1, z1], ...]),                # num_frames×3
+    'mocap_framerate': 60.0,                                              # scalar
+    'gender': 'male',                                                     # string
+    'betas': np.array([b0, b1, ..., b15]),                                # 16 values
+    'dmpls': np.array([[d0, d1, ..., d7], ...])                          # num_frames×8
+}
+
+I have a starting A pose as an npz that I want to copy the motion capture data onto and the data looks like this
+
+**Reference NPZ**:
+
+
+python
+{
+    'J_ABSOLUTE': np.array([[x0, y0, z0], [x1, y1, z1], ...]),  # 52×3
+    'SMPL_OFFSETS': np.array([[dx0, dy0, dz0], ...]),           # 52×3
+    'JOINT_NAMES': np.array(['Pelvis', 'L_Hip', ...])           # 52 strings
+}
+
+
+The contraints of the project are: I need a python script that takes both npz and retarget the motion capture smpl-h on to the the trarget a-pose smpl-h and outputs a glb. 
+
+I can find a solution any way that I want. I have tried doing it by hand and it is too complicated and prone to bugs. are there tools that I can use in a python script to achieve some of this
+
+
+RESPONSE:
+Yes — you **absolutely can automate most of this retargeting pipeline in Python** using existing, well-tested tools instead of reinventing all the motion math by hand.
+
+You’ve already got the right intuition: the process you described is a **motion retargeting** problem, and there are open-source libraries and toolchains that can help you handle SMPL-H and export to `.glb` directly.
+
+Let’s break this down into what you need and what tools can help at each step.
+
+---
+
+## 🧩 Your Goal
+
+Input:
+
+* Source motion capture `.npz` with SMPL-H parameters (`poses`, `trans`, `betas`, etc.)
+* Target reference `.npz` with A-pose joint definitions (`J_ABSOLUTE`, `SMPL_OFFSETS`, etc.)
+
+Output:
+
+* A `.glb` (GLTF) animation file of the **target SMPL-H skeleton performing the source motion.**
+
+---
+
+## 🧠 Key Challenge
+
+Both files are **SMPL-H** format, but one is:
+
+* Motion data (frame-by-frame pose parameters)
+* The other is a **reference skeleton** (A-pose, possibly slightly different joint rest positions or proportions)
+
+So you’re not retargeting *between arbitrary rigs* — it’s actually **retargeting between two SMPL-H instances with different shapes or rest poses.**
+
+This is simpler than generic rig retargeting. You mainly need to:
+
+1. Load both SMPL-H models.
+2. Compute motion in the source’s frame.
+3. Map that motion onto the target’s joints (ensuring alignment in rest pose).
+4. Export the animated mesh or skeleton to GLB.
+
+---
+
+## ⚙️ Tools That Can Help
+
+### 1. **`smplx`** (the official SMPL-H model library)
+
+* 💡 Core for reading, manipulating, and rendering SMPL-H poses in Python.
+* Provided by [https://github.com/vchoutas/smplx](https://github.com/vchoutas/smplx)
+* Can load `.npz` (pose, betas, trans) → produce 3D joint positions and mesh vertices.
+* Works with `pytorch3d` or `trimesh` to visualize or export.
+
+You can:
+
+```python
+from smplx import SMPLH
+import torch, numpy as np
+
+model = SMPLH(model_path='models/smplh', gender='male')
+data = np.load('motion_data.npz')
+poses = torch.tensor(data['poses'])
+trans = torch.tensor(data['trans'])
+output = model(body_pose=poses[:,3:], global_orient=poses[:,:3], transl=trans)
+```
+
+That gives you the **animated skeleton + mesh**.
+
+---
+
+### 2. **`motion-capture-transfer`** (GitHub community tool)
+
+* ✅ Designed for *retargeting motion* between two SMPL/SMPL-X/SMPL-H skeletons.
+* Handles:
+
+  * Pose normalization (T/A-pose)
+  * Skeleton alignment
+  * Joint mapping
+* Repo: [https://github.com/isl-org/MotionCaptureTransfer](https://github.com/isl-org/MotionCaptureTransfer)
+
+This is a *research-grade* project from the same team that built the original SMPL models.
+
+You can adapt their pipeline:
+
+```bash
+python transfer.py --source source_motion.npz --target target_reference.npz --output output.glb
+```
+
+(You may need to edit configs to specify SMPL-H model path.)
+
+---
+
+### 3. **`pyrender` + `trimesh`** for visualization/export
+
+Once you have the target mesh + animation sequence, you can export it to `.glb`:
+
+```python
+import trimesh
+
+# Create a trimesh.Scene with all meshes for each frame
+# or export a single animated mesh using glTF2 exporter
+scene = trimesh.Scene()
+scene.add_geometry(mesh)
+scene.export('output.glb')
+```
+
+If you use `smplx`’s output vertices per frame, you can bake them as keyframes in GLTF format.
+
+---
+
+### 4. **`HumanBodyPrior` / `MoVi` / `AMASS` pipelines**
+
+These are datasets and utilities from the same ecosystem as SMPL-H and include code for:
+
+* Converting mocap `.npz` to SMPL-H poses
+* Re-targeting and alignment across subjects
+* Converting to Blender or GLB
+  👉 Check: [https://github.com/nghorbani/human_body_prior](https://github.com/nghorbani/human_body_prior)
+
+They already solve much of the retargeting pipeline for you — it’s a matter of wiring the correct `.npz` in/out.
+
+---
+
+## 🧱 A Minimal Python Pipeline (conceptually)
+
+```python
+import numpy as np
+import torch
+from smplx import SMPLH
+import trimesh
+
+# --- Load source animation ---
+src = np.load('mocap_anim.npz')
+poses = torch.tensor(src['poses'], dtype=torch.float32)
+trans = torch.tensor(src['trans'], dtype=torch.float32)
+betas = torch.tensor(src['betas'], dtype=torch.float32)
+
+# --- Load target reference skeleton ---
+tgt = np.load('target_apose.npz')
+# (You may use tgt['J_ABSOLUTE'] or tgt['SMPL_OFFSETS'] to align rest pose)
+
+# --- Initialize SMPL-H model ---
+model = SMPLH(model_path='models/smplh', gender=src['gender'].item())
+
+# --- Apply source motion to target body shape ---
+output = model(
+    global_orient=poses[:, :3],
+    body_pose=poses[:, 3:66],
+    transl=trans,
+    betas=betas
+)
+
+# --- Get vertices (frames × 6890 × 3) ---
+vertices = output.vertices.detach().cpu().numpy()
+
+# --- Export first frame as GLB (for test) ---
+mesh = trimesh.Trimesh(vertices=vertices[0], faces=model.faces)
+mesh.export('output.glb')
+```
+
+To produce **animated GLB**, you’d either:
+
+* Loop through frames and bake keyframes into GLTF via `trimesh`’s animation support, or
+* Use `pyrender`/`pygltflib` to build a skinned animation node hierarchy.
+
+---
+
+## 🧠 Summary of Recommended Stack
+
+| Step                          | Tool                                  | Notes                      |
+| ----------------------------- | ------------------------------------- | -------------------------- |
+| Load & manipulate SMPL-H      | `smplx`                               | Core library               |
+| Retarget skeletons            | `motion-capture-transfer`             | Ready-made motion mapper   |
+| Visualize / Export GLB        | `trimesh`, `pyrender`, or `pygltflib` | Exports animation          |
+| Optional advanced retargeting | `human_body_prior`                    | For pose prior + alignment |
+
+---
+
+If you want, I can help you write a **Python pipeline that uses smplx + trimesh** (minimal dependencies, no Blender) to retarget and export to `.glb`.
+Would you like me to outline that exact script (e.g., `retarget_motion.py`) step by step?
+
+
+
+
+I said:
+the starting script i was working on is create_glb_from_npz.py
+
+what can i automate here. I need to solve the problem of "preserving the character of the animation" and trying to balance to scale and preportion differences between the skeltion differences so that the feet are on the ground (important) and that the hands are very important to preverse
+
+the problem with this script is that the armatures scale differently. the porportional rotations are not calculated. the feet and hands behavior are not preserved. the character of the animation is lost
+
+
+RESPONSE:
+🚀 Recommended Path for You
+
+Since you already have Blender integrated:
+
+✅ Step-by-step
+
+Export your source NPZ animation → GLB (your current script already does this).
+
+Import your target A-pose SMPL-H GLB into Blender.
+
+Use Rokoko Retargeting Add-on (or Auto-Rig Pro if you prefer) via bpy.ops.rokoko.retarget() in a Python script.
+
+Bake the result → Export as GLB again.
+
+This keeps your existing code, but shifts the hard part (proportionally retargeting rotations) to a proven, debugged system.
+
+
+
+Excellent — thank you, that helps a lot.
+
+So you’ve already got a full pipeline that **bakes an SMPL-H animation from an NPZ into Blender and exports a GLB**, but you’re running into the *core retargeting issue*:
+➡️ When the **source and target SMPL-H skeletons differ in scale or proportions**, your current script directly copies rotations and positions, causing **foot sliding**, **arm/leg mismatch**, and **loss of motion “character.”**
+
+This is exactly what professional retargeting tools solve using *proportion-aware mapping* and *IK correction*.
+
+Let’s break down where you are — and how to fix it efficiently **using available Python-accessible tools** instead of rebuilding all the math by hand.
+
+---
+
+## 🧩 What’s Wrong in the Current Script
+
+Your current process does:
+
+1. Read SMPL-H pose/translation data.
+2. Compute joint transforms via FK.
+3. Apply transforms 1:1 to an A-pose armature.
+
+That means:
+
+* Each joint rotation is *relative to the source skeleton proportions*.
+* The FK chain uses *different bone lengths* on the target skeleton.
+* When you transfer those rotations directly, **end effectors (hands, feet)** end up in the wrong positions.
+
+To correct this, you need *retargeting with proportional compensation* — typically involving:
+
+1. **Skeleton Mapping** (source → target bone correspondence).
+2. **Pose-space normalization** (align both to a neutral A-pose).
+3. **Proportional scaling** or **IK-based correction** to preserve hand/foot locations.
+
+---
+
+## 🧠 Three Real Options You Can Use in Python
+
+### **Option 1: Blender Retargeting Add-ons (scriptable via bpy)**
+
+You can run these *entirely in Python* inside Blender.
+
+#### 🔹 [Rokoko Studio Live / Retargeting Add-on](https://support.rokoko.com/hc/en-us/articles/4410463481489-Retarget-an-animation-in-Blender)
+
+* Supports **automatic bone mapping** for standard skeletons (like SMPL or Mixamo).
+* Handles **scale normalization and IK foot correction** out of the box.
+* Fully automatable via `bpy.ops.rokoko.retarget(...)`.
+
+If you import both skeletons (A-pose target and animated source) as armatures in Blender, you can script:
+
+```python
+bpy.ops.rokoko.retarget(
+    source_armature='Source_Armature',
+    target_armature='Target_Armature',
+    bake_animation=True
+)
+```
+
+You can also combine that with your NPZ import by generating GLBs first, then retargeting automatically.
+This is by far the **least painful** solution and keeps everything in Blender.
+
+---
+
+### **Option 2: `smplx` + `human-body-prior` Python Stack**
+
+If you want to stay entirely in Python (no Blender GUI):
+
+You can use the [`smplx`](https://github.com/vchoutas/smplx) and [`human-body-prior`](https://github.com/nghorbani/human-body-prior) libraries to:
+
+* Load both SMPL-H parameter sets (betas, poses).
+* Generate canonical body meshes and joint locations.
+* Use `pytorch3d.transforms` to retarget joint rotations proportionally (through least-squares optimization or IK).
+
+This route lets you **optimize the target joint rotations** such that:
+
+* The **end effector positions** match the source motion,
+* The **target skeleton constraints** are respected.
+
+However, this requires some math — you'd be effectively implementing retargeting from first principles (but with strong libraries doing the heavy lifting).
+
+---
+
+### **Option 3: `mmpose` / `mmhuman3d`**
+
+If you’re open to using the [OpenMMLab Human3D pipeline](https://github.com/open-mmlab/mmhuman3d):
+
+`mmhuman3d` already includes:
+
+* SMPL-X and SMPL-H support,
+* Retargeting utilities,
+* Pose reconstruction,
+* And GLB/FBX export.
+
+It’s designed exactly for your situation: converting between two SMPL parameterizations with different proportions.
+
+Example workflow:
+
+```python
+from mmhuman3d.core.conversions import convert_smpl_pose
+from mmhuman3d.core.visualization import visualize_smpl
+
+# Convert from one skeleton definition to another
+converted_pose = convert_smpl_pose(
+    src_pose=source_poses,
+    src_skeleton='smplh',
+    dst_skeleton='smplh',
+    src_to_dst_joint_mapper=custom_mapping,
+)
+
+# Visualize or export to GLB
+visualize_smpl(
+    pose=converted_pose,
+    betas=target_betas,
+    output_path='output.glb'
+)
+```
+
+This is a bit heavier but *completely scriptable and production-grade*.
+
+---
+
+## 🚀 Recommended Path for You
+
+Since you already have Blender integrated:
+
+### ✅ Step-by-step
+
+1. Export your **source NPZ animation** → GLB (your current script already does this).
+2. Import your **target A-pose SMPL-H** GLB into Blender.
+3. Use **Rokoko Retargeting Add-on** (or Auto-Rig Pro if you prefer) via `bpy.ops.rokoko.retarget()` in a Python script.
+4. Bake the result → Export as GLB again.
+
+This keeps your existing code, but shifts the hard part (proportionally retargeting rotations) to a proven, debugged system.
+
+---
+
+If you want, I can:
+
+* show you **a minimal Python script** that runs Rokoko’s retargeting inside Blender (no GUI steps),
+* or show how to **use mmhuman3d** to retarget two SMPL-H `.npz` files purely in Python (no Blender).
+
+Which would you like me to outline next —
+🟢 Blender + Rokoko automated retarget script, or
+🔵 mmhuman3d pure Python retarget pipeline?
+
+
+I SAID: 
+
+I like the idea of using the rokoko library. but the script is going to be used in a larger pipline to automate te retargeting for a large set of motion capture data. nothing can be done manually by hand
+
+Response:
+Perfect — that’s exactly the right instinct. 💡
+
+If this will run in a **fully automated pipeline**, we need a **headless, no-GUI Blender process** where everything (import → retarget → export) happens in Python. Rokoko’s add-on is **fully automatable**, but there are a few details to get right — especially since you’ll be batch processing many SMPL-H motion files.
+
+Let’s go over how to set that up cleanly.
+
+---
+
+## ⚙️ Architecture Overview
+
+You’ll build a **three-stage pipeline** that can run entirely from the command line:
+
+```bash
+blender --background --python retarget_batch.py -- --source-folder /path/to/mocap --target /path/to/apose.glb --output /path/to/out
+```
+
+Here’s what happens:
+
+1. **Import** each NPZ as a GLB (your existing converter already does this).
+2. **Import** your reference A-pose GLB (the target SMPL-H rig).
+3. **Call the Rokoko retarget operator** in Python — no GUI, fully scripted.
+4. **Bake** the animation on the target.
+5. **Export** to GLB.
+
+---
+
+## 🧩 Step 1: Ensure the Rokoko Add-on Is Installed and Enabled
+
+Rokoko’s Blender add-on is Python-based and installed like any other addon.
+
+You can script its installation once per machine:
+
+```python
+import bpy
+
+# path to the Rokoko add-on .zip or folder
+addon_path = "/path/to/rokoko-studio-live-blender"
+bpy.ops.preferences.addon_install(filepath=addon_path)
+bpy.ops.preferences.addon_enable(module="rokoko_studio_live_blender")
+```
+
+Once enabled, Blender exposes the operator:
+
+```python
+bpy.ops.rokoko.retarget(
+    source_armature="SourceRigName",
+    target_armature="TargetRigName",
+    bake_animation=True,
+)
+```
+
+---
+
+## 🧠 Step 2: Retarget Script (Headless Automation)
+
+Here’s a minimal example you can adapt into your batch process:
+
+```python
+# retarget_batch.py
+import bpy
+import sys
+from pathlib import Path
+
+def import_glb(filepath, name):
+    bpy.ops.import_scene.gltf(filepath=str(filepath))
+    obj = [o for o in bpy.context.selected_objects if o.type == "ARMATURE"]
+    if not obj:
+        raise RuntimeError(f"No armature found in {filepath}")
+    arm = obj[0]
+    arm.name = name
+    return arm
+
+def retarget_rokoko(source_arm, target_arm, output_path):
+    bpy.ops.rokoko.retarget(
+        source_armature=source_arm.name,
+        target_armature=target_arm.name,
+        bake_animation=True
+    )
+    # Export baked animation
+    bpy.ops.object.select_all(action='DESELECT')
+    target_arm.select_set(True)
+    bpy.context.view_layer.objects.active = target_arm
+    bpy.ops.export_scene.gltf(
+        filepath=str(output_path),
+        export_format='GLB',
+        use_selection=True,
+        export_animations=True,
+    )
+
+def main():
+    argv = sys.argv
+    argv = argv[argv.index("--") + 1:] if "--" in argv else []
+    source_folder = Path(argv[0])
+    target_path = Path(argv[1])
+    output_folder = Path(argv[2])
+    output_folder.mkdir(exist_ok=True)
+
+    for glb in source_folder.glob("*.glb"):
+        print(f"Processing {glb.name}")
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+
+        src = import_glb(glb, "SourceRig")
+        tgt = import_glb(target_path, "TargetRig")
+
+        output_path = output_folder / glb.name
+        retarget_rokoko(src, tgt, output_path)
+        print(f"✓ Retargeted and exported {output_path}")
+
+if __name__ == "__main__":
+    main()
+```
+
+Then you can call it in batch mode:
+
+```bash
+blender --background --python retarget_batch.py -- /path/to/source_glbs /path/to/target_apose.glb /path/to/output
+```
+
+This can be easily wrapped in your higher-level Python pipeline.
+
+---
+
+## 🧱 Step 3: Integrate with Your Current NPZ → GLB Step
+
+Since you already have a converter that produces `.glb` animations from `.npz`, you can chain the two processes:
+
+```bash
+# Step 1: Convert all NPZs to GLBs
+blender --background --python create_glb_from_npz.py -- --input-folder /path/to/npz --output-folder /path/to/intermediate_glbs
+
+# Step 2: Retarget all GLBs using Rokoko
+blender --background --python retarget_batch.py -- /path/to/intermediate_glbs /path/to/target_apose.glb /path/to/final_output
+```
+
+That’s fully automated — no GUI clicks, no manual mapping.
+
+---
+
+## 🔍 Notes on Reliability
+
+✅ Rokoko’s retarget system automatically handles:
+
+* Skeleton scaling / limb proportion adjustments.
+* Foot & hand locking with IK corrections.
+* Rotation-space normalization.
+
+⚠️ Limitations:
+
+* You must have both rigs recognized as **humanoid armatures** (standardized names).
+* SMPL-H joints not in the Rokoko retarget template (like finger joints beyond standard) may need a small JSON bone map tweak.
+
+---
+
+## 🧠 Optional Advanced Step: Custom Bone Mapping File
+
+If SMPL-H doesn’t match Rokoko’s internal naming, you can use a **custom JSON mapping**:
+
+```json
+{
+  "Pelvis": "hips",
+  "L_Hip": "leftUpLeg",
+  "R_Hip": "rightUpLeg",
+  "L_Knee": "leftLeg",
+  "R_Knee": "rightLeg",
+  ...
+}
+```
+
+Then call the operator like:
+
+```python
+bpy.ops.rokoko.retarget(
+    source_armature=src.name,
+    target_armature=tgt.name,
+    mapping_file="/path/to/smplh_mapping.json",
+    bake_animation=True
+)
+```
+
+This makes it robust for non-standard bone hierarchies like SMPL-H.
+
+---
+
+## 🚀 TL;DR Recommended Setup
+
+* ✅ Use your existing **NPZ → GLB** generator.
+* ✅ Use **Rokoko add-on** in headless Blender Python for retargeting.
+* ✅ Run everything in batch with `--background --python`.
+* ✅ Output final GLBs ready for Unreal or downstream ML training.
+
+---
+
+Would you like me to show the **exact JSON bone mapping file** for SMPL-H → standard Rokoko humanoid (so the retargeting is perfect and automated)?
+
+
+I said:
+So to recap. the rokoko plugin must be installed in blender. bpy can interface with that plugin and automate the retargeting. Do I convert both of the npzs the glbs first and then use it in the rokoko retargetting? 
+
+Perfect summary — and yes, you’ve got the overall logic right. Let’s walk through it step by step and fill in the missing details of the **data flow**:
+
+---
+
+## 🧩 1. Rokoko must be installed in Blender
+
+✅ **Yes.**
+The Rokoko Studio Live plugin is a **Blender add-on** — not a standalone Python library.
+You can install it manually once (or via script) using:
+
+```bash
+blender --background --python-expr "import bpy; bpy.ops.preferences.addon_install(filepath='rokoko_studio_live.zip'); bpy.ops.preferences.addon_enable(module='rokoko-studio-live-blender')"
+```
+
+Once installed, it registers `bpy.ops.rokoko.*` operators inside Blender’s Python environment.
+Those operators are what your automation script will call.
+
+---
+
+## 🧠 2. The retargeting works **on armatures inside Blender**
+
+The Rokoko retargeting operator expects:
+
+* A **source armature** (the animation you want to transfer)
+* A **target armature** (the skeleton you want to apply it to)
+
+Both must exist in the current Blender scene.
+
+---
+
+## 🔁 3. So yes — both `.npz` → `.glb` first
+
+✅ **Exactly.**
+
+Your `.npz` files contain motion capture data (joint angles, maybe positions), but Blender and Rokoko don’t read `.npz` directly.
+
+The pipeline should:
+
+1. **Convert each `.npz` mocap file → `.glb` (or `.fbx`) animation file**, using your own Python script or another tool (e.g., via `smplx`, `numpy`, and `blender’s bmesh` APIs).
+2. **Load those `.glb` files into Blender** — one for your mocap (source) and one for your character (target, e.g., SMPL-H or custom rig).
+3. **Call the Rokoko retarget operator** with the two armatures.
+4. **Export the retargeted animation** back out as `.glb`, `.fbx`, or `.bvh`.
+
+---
+
+### 🔄 Example Automation Flow
+
+Let’s outline it in automation-friendly pseudocode:
+
+```python
+import bpy
+
+# 1. Load source (motion capture) GLB
+bpy.ops.import_scene.gltf(filepath="mocap.glb")
+source = bpy.data.objects["mocap_armature"]
+
+# 2. Load target (your model) GLB
+bpy.ops.import_scene.gltf(filepath="smplh.glb")
+target = bpy.data.objects["smplh_armature"]
+
+# 3. Run Rokoko retarget
+bpy.ops.rokoko.retarget(
+    source_armature=source.name,
+    target_armature=target.name,
+    use_auto_scale=True,
+    frame_start=1,
+    frame_end=240
+)
+
+# 4. Export the retargeted animation
+bpy.ops.export_scene.gltf(filepath="retargeted.glb")
+```
+
+That script can run **headless** (no UI):
+
+```bash
+blender --background --python retarget_script.py
+```
+
+---
+
+## 🧩 4. Notes for large dataset automation
+
+To integrate this into a larger pipeline:
+
+* Your **Python (outside Blender)** script can generate a temporary `.py` Blender script and call it per file pair.
+* You can use `subprocess.run()` in Python to execute Blender headlessly.
+* The Rokoko retarget operator might need a **bone map** — if your skeletons don’t match exactly. You can define it once and reuse it for all motions.
+
+---
+
+## ⚙️ 5. Optional optimization
+
+If you’re retargeting hundreds of clips:
+
+* Keep Blender open and reuse the context (via `bpy.app.timers`) instead of restarting it every time.
+* Or run in batches, since startup cost is high.
+* Export as `.fbx` if you need Unreal Engine compatibility later.
+
+---
+
+Would you like me to show you how to structure the **automated pipeline** script — i.e. the part that loops through all `.npz` files, converts them, runs Blender headless, and outputs `.glb` animations?
