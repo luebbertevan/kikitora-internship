@@ -86,7 +86,7 @@ blender --background --python src/retarget.py -- \
 
 ```bash
 # Process all NPZ files
-/Applications/Blender.app/Contents/MacOS/Blender --background --python src/retarget.py -- data/test_small
+/Applications/Blender.app/Contents/MacOS/Blender --background --python src/retarget.py -- data/test
 
 # Process only first 3 files
 /Applications/Blender.app/Contents/MacOS/Blender --background --python src/retarget.py -- data/test_small --limit 3
@@ -156,7 +156,7 @@ blender --background --python src/originals/original_retarget.py -- \
 **Basic command:**
 
 ```bash
-/Applications/Blender.app/Contents/MacOS/Blender --background --python src/originals/create_glb_from_npz_fixed.py -- data/test_small
+/Applications/Blender.app/Contents/MacOS/Blender --background --python src/originals/create_glb_from_npz_fixed.py -- data/test
 ```
 
 **With limit:**

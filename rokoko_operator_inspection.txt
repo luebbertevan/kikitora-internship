@@ -1,8 +1,0 @@
-ROKOKO OPERATOR INSPECTION RESULTS
-================================================================================
-
-❌ Rokoko add-on not found or not enabled
-
-
-Errors:
-  - Rokoko add-on not found or not enabled
