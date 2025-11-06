@@ -27,8 +27,10 @@ JOINT_NAMES: List[str] = [
     "L_Elbow", "R_Elbow", "L_Wrist", "R_Wrist"
 ] + [f"L_Hand_{i}" for i in range(15)] + [f"R_Hand_{i}" for i in range(15)]
 
-# EXACT SAME J_ABSOLUTE AS MATPLOTLIB
-J_ABSOLUTE: NDArray[np.float64] = np.array([
+# Load J_ABSOLUTE from reference A-pose NPZ (M2)
+# This will be loaded at module level, but we need the function first
+# For now, keep hardcoded T-pose as fallback, will be replaced in M3
+J_ABSOLUTE_HARDCODED: NDArray[np.float64] = np.array([
     [-0.001795, -0.223333, 0.028219], [0.067725, -0.314740, 0.021404],
     [-0.069466, -0.313855, 0.023899], [-0.004328, -0.114370, 0.001523],
     [0.102001, -0.689938, 0.016908], [-0.107756, -0.696424, 0.015049],
@@ -56,6 +58,10 @@ J_ABSOLUTE: NDArray[np.float64] = np.array([
     [-0.829999, 0.211622, -0.081116], [-0.722013, 0.199415, -0.016553],
     [-0.739452, 0.200249, 0.007932], [-0.760794, 0.195263, 0.022366],
 ])
+
+# TODO M3: Replace with loaded A-pose J_ABSOLUTE
+# For now, use hardcoded T-pose as fallback
+J_ABSOLUTE: NDArray[np.float64] = J_ABSOLUTE_HARDCODED.copy()
 
 
 # Compute RELATIVE offsets - EXACT SAME AS MATPLOTLIB
@@ -88,6 +94,39 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     return R
 
 
+def load_reference_j_absolute() -> NDArray[np.float64]:
+    """
+    Load J_ABSOLUTE from smplh_target_reference.npz.
+    
+    Returns:
+        J_ABSOLUTE as (52, 3) array
+        
+    Raises:
+        FileNotFoundError: If reference NPZ file not found
+        KeyError: If 'J_ABSOLUTE' key not found in NPZ
+        ValueError: If J_ABSOLUTE shape is not (52, 3)
+    """
+    ref_path = Path(__file__).parent.parent / 'data' / 'reference' / 'smplh_target_reference.npz'
+    
+    if not ref_path.exists():
+        raise FileNotFoundError(f"Reference NPZ file not found: {ref_path}")
+    
+    ref = np.load(str(ref_path))
+    
+    if 'J_ABSOLUTE' not in ref:
+        raise KeyError(f"'J_ABSOLUTE' key not found in {ref_path}")
+    
+    J_ABSOLUTE_ref = ref['J_ABSOLUTE']
+    
+    if J_ABSOLUTE_ref.shape != (52, 3):
+        raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_ref.shape} != (52, 3)")
+    
+    print(f"✓ Loaded J_ABSOLUTE from {ref_path.name}")
+    print(f"  Shape: {J_ABSOLUTE_ref.shape}, dtype: {J_ABSOLUTE_ref.dtype}")
+    
+    return J_ABSOLUTE_ref.astype(np.float64)
+
+
 def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
     """
     Load reference pelvis position from smplh_target_reference.npz.
@@ -96,11 +135,9 @@ def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
         Reference pelvis position as (3,) array, or None if not found
     """
     try:
-        ref_path = Path(__file__).parent.parent / 'data' / 'reference' / 'smplh_target_reference.npz'
-        ref = np.load(str(ref_path))
-        J_ABSOLUTE_ref = ref['J_ABSOLUTE']
+        J_ABSOLUTE_ref = load_reference_j_absolute()
         return J_ABSOLUTE_ref[0]  # Pelvis is index 0
-    except (FileNotFoundError, KeyError) as e:
+    except (FileNotFoundError, KeyError, ValueError) as e:
         print(f"Warning: Could not load reference pelvis: {e}")
         return None
 
