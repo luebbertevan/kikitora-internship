@@ -19,7 +19,7 @@ USAGE:
     blender --background --python inventory_fbx_armature.py -- <FBX_PATH> <OUT_CSV>
 
 EXAMPLE:
-    blender --background --python inventory_fbx_armature.py -- reference/A-Pose.FBX reference/apose_bones.csv
+    blender --background --python inventory_fbx_armature.py -- docs/standup/A-Pose.FBX docs/standup/apose_bones.csv
 ============================================================================
 """
 import bpy

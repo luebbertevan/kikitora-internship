@@ -19,7 +19,7 @@ USAGE:
     blender --background --python extract_smplh_from_fbx.py -- <FBX> <MAPPING_JSON> <OUT_DIR>
 
 EXAMPLE:
-    blender --background --python extract_smplh_from_fbx.py -- reference/A-Pose.FBX config/mapping_fbx_to_smplh.json data/reference/
+    blender --background --python extract_smplh_from_fbx.py -- docs/standup/A-Pose.FBX config/mapping_fbx_to_smplh.json data/reference/
 ============================================================================
 """
 import bpy
