@@ -122,3 +122,20 @@ no docs. how do I learn how to use this?
 
 what is going on with the glb shape distortion? it is stretching and distorting with movement
 
+
+
+
+What is actually wrong with the hardcoded bone lengths? they look pretty decent and a lot better then my a-pose reference. I dont really see any problems with it. where did yo actually get this t-pose reference from?
+
+Why not just standerdize to the t-pose? why a-pose?
+
+how did you actually make the create_glb_from_npz.py script?
+
+SMPL-Model License and AMASS Software Copyright License for non-commercial scientific research purposes. 
+To use the Software for the sole purpose of performing non-commercial scientific research
+This license also prohibits the use of the Software to train methods/algorithms/neural networks/etc.
+
+
+
+Are you going to ask you partners for their motion capture data to train on?
+

@@ -1,10 +1,14 @@
-# New Approach Specification: A-Pose Bone Length Retargeting
+# New Approach Specification: T-Pose Bone Lengths with A-Pose Starting Frame
 
 ## Overview
 
-**Strategy**: Use reference A-pose bone lengths and map motion capture animations onto them. Since we cannot faithfully recreate the original armature (insufficient information in NPZ), we create animations on our chosen reference skeleton and make subjective adjustments to preserve key characteristics (feet on ground, hand positions, etc.).
+**Strategy**: Keep the hardcoded T-pose bone lengths (which look good) and manually create an A-pose in Blender by rotating the T-pose skeleton. Export the A-pose `J_ABSOLUTE` from Blender and use it to set frame 0 of all animations. This gives us:
 
-**Key Principle**: We accept that we cannot perfectly recreate the original motion capture animation. Instead, we approximate it using our reference A-pose skeleton and make targeted adjustments to preserve the most valued characteristics.
+-   Known-good T-pose bone lengths (hardcoded, already working)
+-   A-pose starting frame (manually created in Blender, visually verified)
+-   Same bone lengths for both poses (only rotations differ)
+
+**Key Principle**: We keep the T-pose bone lengths we trust, manually create the A-pose visually in Blender, then use that A-pose `J_ABSOLUTE` to align frame 0 of animations. Since bone lengths don't change, `SMPL_OFFSETS` stay the same - only `J_ABSOLUTE` changes.
 
 ---
 
@@ -72,146 +76,271 @@
 
 ---
 
-## Milestone M2: Load A-Pose J_ABSOLUTE from NPZ
+## Milestone M2: Create A-Pose in Blender and Export J_ABSOLUTE
 
-**Objective**: Load `J_ABSOLUTE` from `data/reference/smplh_target_reference.npz` into `retarget.py` and confirm it's loaded correctly.
+**Objective**: Manually create an A-pose in Blender by rotating the T-pose skeleton, then export the A-pose `J_ABSOLUTE` for use in frame 0 alignment.
 
-### M2.1: Create Load Function
+### M2.1: Create Script to Export J_ABSOLUTE from Blender Armature
 
-**Task**: Create function to load `J_ABSOLUTE` from reference NPZ
+**Task**: Create a script that reads joint positions from a Blender armature and exports them as `J_ABSOLUTE`
 
 **Sub-tasks**:
 
-1. Create function `load_reference_j_absolute() -> NDArray[np.float64]`:
-    - Load `data/reference/smplh_target_reference.npz`
+1. Create script `src/utils/reference/export_apose_from_blender.py`:
+    - Load or create armature in Blender (using T-pose `J_ABSOLUTE`)
+    - Read bone head positions for all 52 joints
+    - Export as `J_ABSOLUTE` array (52, 3)
+    - Save to NPZ file: `data/reference/apose_from_blender.npz`
+2. Script should:
+    - Match joint names to indices
+    - Handle armature in rest pose or posed state
+    - Export in correct coordinate system (Z-up, meters)
+3. Test script on T-pose armature to verify it exports correctly
+
+**Deliverable**: Script that exports `J_ABSOLUTE` from Blender armature
+
+### M2.2: Manually Create A-Pose in Blender
+
+**Task**: Use Blender to manually adjust T-pose armature to A-pose
+
+**Sub-tasks**:
+
+1. Load T-pose armature in Blender (or create from hardcoded `J_ABSOLUTE`)
+2. Manually rotate bones to create A-pose:
+    - Arms: Rotate down ~45° from horizontal
+    - Legs: Slight outward rotation if needed
+    - Spine: Minimal changes
+    - Hands: Natural A-pose position
+3. Visual verification: A-pose should look correct
+4. Save Blender file for future reference
+
+**Deliverable**: A-pose armature in Blender (visually verified)
+
+### M2.3: Export A-Pose J_ABSOLUTE
+
+**Task**: Run export script to save A-pose `J_ABSOLUTE`
+
+**Sub-tasks**:
+
+1. Run export script on A-pose armature:
+    ```bash
+    /Applications/Blender.app/Contents/MacOS/Blender --background --python src/utils/reference/export_apose_from_blender.py
+    ```
+2. Verify exported NPZ file:
+    - Check shape is (52, 3)
+    - Compare a few key joints to T-pose (should differ by rotation only)
+    - Verify bone lengths are same (compute `SMPL_OFFSETS` and compare to T-pose)
+3. Save to `data/reference/apose_from_blender.npz`
+
+**Deliverable**: Exported A-pose `J_ABSOLUTE` NPZ file
+
+**Acceptance Criteria**:
+
+-   A-pose looks correct visually in Blender
+-   Exported `J_ABSOLUTE` has shape (52, 3)
+-   Bone lengths match T-pose (same `SMPL_OFFSETS`)
+-   Only joint positions differ (rotations applied)
+
+---
+
+## Milestone M3: Load A-Pose J_ABSOLUTE for Frame 0 Alignment
+
+**Objective**: Load the exported A-pose `J_ABSOLUTE` and prepare it for use in frame 0 alignment.
+
+### M3.1: Create Load Function for A-Pose
+
+**Task**: Create function to load A-pose `J_ABSOLUTE` from exported NPZ
+
+**Sub-tasks**:
+
+1. Create function `load_apose_j_absolute() -> NDArray[np.float64]`:
+    - Load `data/reference/apose_from_blender.npz`
     - Extract `J_ABSOLUTE` key
     - Validate shape is (52, 3)
     - Return as `NDArray[np.float64]`
-2. Add error handling:
-    - File not found → clear error message
-    - Missing key → clear error message
-    - Wrong shape → clear error message
-3. Add logging: print confirmation when loaded successfully
+2. Add error handling and logging
+3. Keep existing `load_reference_j_absolute()` for other uses if needed
 
-**Deliverable**: Function in `retarget.py`:
+**Deliverable**: Function to load A-pose `J_ABSOLUTE`
 
-```python
-def load_reference_j_absolute() -> NDArray[np.float64]:
-    """Load J_ABSOLUTE from smplh_target_reference.npz"""
-    # Implementation
-```
+### M3.2: Verify A-Pose Bone Lengths
 
-### M2.2: Test Load Function
-
-**Task**: Verify the load function works correctly
+**Task**: Confirm that A-pose has same bone lengths as T-pose
 
 **Sub-tasks**:
 
-1. Create test script `tests/M2_test_load_j_absolute.py`:
-    - Call `load_reference_j_absolute()`
-    - Print shape, dtype, first few values
-    - Compare to known values from reference NPZ
-2. Run test script in Blender:
-    ```bash
-    /Applications/Blender.app/Contents/MacOS/Blender --background --python tests/M2_test_load_j_absolute.py
-    ```
-3. Verify output matches expected values
+1. Load both T-pose and A-pose `J_ABSOLUTE`
+2. Compute `SMPL_OFFSETS` for both
+3. Compare offsets - should be identical (within floating-point precision)
+4. If different, investigate why (should only differ by rotations)
 
-**Deliverable**: Test script and confirmation that values match reference NPZ
+**Deliverable**: Confirmation that bone lengths match
 
 **Acceptance Criteria**:
 
--   Function loads without errors
--   Shape is (52, 3)
--   Values match `data/reference/smplh_target_reference.npz` exactly
--   Clear error messages if file/key missing
+-   A-pose `SMPL_OFFSETS` match T-pose `SMPL_OFFSETS` exactly
+-   Only `J_ABSOLUTE` positions differ (due to rotations)
 
 ---
 
-## Milestone M3: Replace Hardcoded J_ABSOLUTE with A-Pose
+## Milestone M3.3: Diagnose Armature Facing Ground Issue
 
-**Objective**: Replace the hardcoded T-pose `J_ABSOLUTE` with the A-pose `J_ABSOLUTE` from the reference NPZ. This should enable basic retargeting of mocap animations onto A-pose bone lengths.
+**Objective**: Investigate why the entire armature is facing the ground (pelvis rotation issue).
 
-### M3.1: Replace Hardcoded Values
+### M3.3.1: Check Reference NPZ Coordinate System
 
-**Task**: Use loaded A-pose `J_ABSOLUTE` instead of hardcoded T-pose values
-
-**Sub-tasks**:
-
-1. In `retarget.py`, replace hardcoded `J_ABSOLUTE` array with call to `load_reference_j_absolute()`
-2. Update `SMPL_OFFSETS` computation to use the loaded `J_ABSOLUTE`:
-    - Ensure `SMPL_OFFSETS` is computed from A-pose `J_ABSOLUTE`
-    - This happens in the existing loop (lines 62-68), should work automatically
-3. Add logging: print confirmation that A-pose values are being used
-
-**Deliverable**: Updated `retarget.py` that uses A-pose `J_ABSOLUTE` from NPZ
-
-### M3.2: Validate A-Pose Offsets
-
-**Task**: Verify that `SMPL_OFFSETS` computed from A-pose are correct
+**Task**: Verify the coordinate system of the reference NPZ J_ABSOLUTE
 
 **Sub-tasks**:
 
-1. Create validation script `tests/M3_validate_apose_offsets.py`:
-    - Load reference NPZ
-    - Extract `J_ABSOLUTE` and `SMPL_OFFSETS` from NPZ
-    - Compute `SMPL_OFFSETS` from `J_ABSOLUTE` using parent tree
-    - Compare computed vs. stored `SMPL_OFFSETS` (should match)
-2. Run validation script
-3. Verify computed offsets match stored offsets (within floating-point precision)
+1. Load reference NPZ and inspect J_ABSOLUTE values:
+    - Check pelvis position (should be near origin or reasonable)
+    - Check if Z is up (Blender standard) or Y is up
+    - Compare to what Blender expects (Z-up, meters)
+2. Load reference GLB (`data/reference/smplh_target.glb`) and check:
+    - What coordinate system it uses
+    - How the armature is oriented
+    - Compare pelvis position in GLB vs NPZ
+3. Document findings in `docs/M3_4_COORDINATE_SYSTEM.md`
 
-**Deliverable**: Validation script and confirmation that offsets are correct
+**Deliverable**: Analysis document showing coordinate system of reference NPZ
+
+### M3.3.2: Check Pelvis Rotation Application
+
+**Task**: Verify how pelvis rotation is being applied in forward kinematics
+
+**Sub-tasks**:
+
+1. Add diagnostic logging to `forward_kinematics()`:
+    - Log pelvis rotation (first 3 values of `poses`)
+    - Log pelvis translation (`trans`)
+    - Log computed pelvis position after FK
+2. Test on a single frame:
+    - Load a test NPZ
+    - Print pelvis rotation values
+    - Check if rotation is being applied correctly
+    - Verify if pelvis rotation should be zero for A-pose
+3. Check if mocap `poses[0]` (pelvis rotation) is non-zero and causing the issue
+
+**Deliverable**: Diagnostic output showing pelvis rotation values and their effect
+
+### M3.3.3: Compare Reference GLB vs Generated GLB
+
+**Task**: Visually compare reference GLB orientation to generated GLB
+
+**Sub-tasks**:
+
+1. Load `data/reference/smplh_target.glb` in Blender:
+    - Note armature orientation
+    - Check pelvis position and rotation
+    - Export frame 0 joint positions
+2. Load a generated GLB from retarget.py:
+    - Compare frame 0 orientation
+    - Check if there's a rotation difference
+    - Measure angle between reference and generated
+3. Document findings
+
+**Deliverable**: Comparison document with visual notes and measurements
+
+### M3.3.4: Test Zero Pelvis Rotation
+
+**Task**: Test if setting pelvis rotation to zero fixes the orientation issue
+
+**Sub-tasks**:
+
+1. Create test script that:
+    - Loads mocap NPZ
+    - Sets `poses[0]` (pelvis rotation) to `[0, 0, 0]` for all frames
+    - Runs retarget.py with modified poses
+2. Check if armature is now upright
+3. If yes: pelvis rotation is the issue
+4. If no: investigate coordinate system or J_ABSOLUTE loading
+
+**Deliverable**: Test results and conclusion about root cause
 
 **Acceptance Criteria**:
 
--   `SMPL_OFFSETS` computed from A-pose `J_ABSOLUTE` match stored `SMPL_OFFSETS` in NPZ
--   All 52 joints have valid offsets
--   No zero-length bones (except end bones)
-
-### M3.3: Test Basic Retargeting
-
-**Task**: Test that animations are retargeted onto A-pose bone lengths
-
-**Sub-tasks**:
-
-1. Process a single test NPZ file with updated `retarget.py`:
-    ```bash
-    /Applications/Blender.app/Contents/MacOS/Blender --background --python src/retarget.py -- data/test_small
-    ```
-2. Load output GLB in Blender
-3. Visual inspection:
-    - Check that bone lengths match reference A-pose (compare to `smplh_target.glb`)
-    - Check that animation plays (should look different from before)
-    - Verify no obvious errors (broken bones, extreme distortions)
-4. Document observations: what looks correct, what looks wrong
-
-**Deliverable**: Test GLB file and markdown document `docs/M3_TEST_RESULTS.md` with:
-
--   Visual inspection notes
--   Comparison to previous output
--   List of issues found (if any)
-
-**Acceptance Criteria**:
-
--   GLB exports without errors
--   Bone lengths match reference A-pose (visual check)
--   Animation plays (may look different, that's expected)
--   No crashes or obvious errors
+-   Root cause identified (pelvis rotation, coordinate system, or J_ABSOLUTE loading)
+-   Clear explanation of why armature faces ground
+-   Proposed fix identified
 
 ---
 
-## Milestone M4: Set Frame 0 to Reference A-Pose
+## Milestone M3.4: Diagnose Rotation Application Issues
 
-**Objective**: Override frame 0 of all animations to exactly match the reference A-pose, while preserving animation starting from frame 1.
+**Objective**: Investigate why rotations are applied strangely (arms at different angles).
+
+### M3.4.1: Compare Frame 0 Pose to A-Pose
+
+**Task**: Check if frame 0 of mocap matches A-pose
+
+**Sub-tasks**:
+
+1. Create diagnostic script:
+    - Load mocap NPZ
+    - Compute frame 0 joint positions using FK
+    - Load reference A-pose J_ABSOLUTE
+    - Compare joint positions
+2. Measure differences:
+    - Which joints differ most?
+    - Are arms in different positions?
+    - Are rotations relative to wrong rest pose?
+3. Document findings
+
+**Deliverable**: Comparison showing frame 0 vs A-pose differences
+
+### M3.4.2: Understand Rotation Space
+
+**Task**: Verify that mocap rotations are relative to original rest pose, not A-pose
+
+**Sub-tasks**:
+
+1. Research: Are `poses` in mocap NPZ relative to:
+    - Original mocap subject's rest pose (T-pose)?
+    - Some other reference pose?
+2. Check if this explains why rotations look wrong:
+    - If mocap rotations are relative to T-pose
+    - But we're applying them to A-pose bone lengths
+    - The rotations will be wrong
+3. This is expected - M4 will fix by setting frame 0 to A-pose first
+
+**Deliverable**: Explanation of rotation space issue
+
+### M3.4.3: Visualize Rotation Differences
+
+**Task**: Create visualization showing how rotations differ
+
+**Sub-tasks**:
+
+1. Create script that:
+    - Computes what frame 0 should look like with mocap rotations
+    - Computes what A-pose looks like
+    - Shows difference in bone directions
+2. Export both as GLBs for visual comparison
+3. Document which bones are most affected
+
+**Deliverable**: Visual comparison GLBs and analysis
+
+**Acceptance Criteria**:
+
+-   Confirmed that rotations are relative to wrong rest pose
+-   Understanding that M4 (frame 0 A-pose) will fix this
+-   Clear explanation of why arms look wrong
+
+---
+
+## Milestone M4: Set Frame 0 to A-Pose
+
+**Objective**: Override frame 0 of all animations to exactly match the A-pose created in Blender, while preserving animation starting from frame 1.
 
 ### M4.1: Load A-Pose Joint Positions
 
-**Task**: Load reference A-pose joint positions for frame 0 override
+**Task**: Load A-pose joint positions for frame 0 override
 
 **Sub-tasks**:
 
-1. Create function `get_reference_apose_joint_positions() -> NDArray[np.float64]`:
-    - Load `J_ABSOLUTE` from reference NPZ
+1. Use `load_apose_j_absolute()` from M3.1:
+    - Load `J_ABSOLUTE` from `data/reference/apose_from_blender.npz`
     - Return as (52, 3) array
 2. This is the target joint positions for frame 0
 

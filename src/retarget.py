@@ -27,37 +27,38 @@ JOINT_NAMES: List[str] = [
     "L_Elbow", "R_Elbow", "L_Wrist", "R_Wrist"
 ] + [f"L_Hand_{i}" for i in range(15)] + [f"R_Hand_{i}" for i in range(15)]
 
-# M3: Load J_ABSOLUTE from reference A-pose NPZ
-# Note: load_reference_j_absolute() is defined below, but we need to call it here
-# This will raise an error if the reference file is not found (no fallback)
-def _load_j_absolute_at_startup() -> NDArray[np.float64]:
-    """Helper to load J_ABSOLUTE at module import time"""
-    ref_path = Path(__file__).parent.parent / 'data' / 'reference' / 'smplh_target_reference.npz'
-    
-    if not ref_path.exists():
-        raise FileNotFoundError(
-            f"Reference NPZ file not found: {ref_path}\n"
-            f"Please ensure data/reference/smplh_target_reference.npz exists."
-        )
-    
-    ref = np.load(str(ref_path))
-    
-    if 'J_ABSOLUTE' not in ref:
-        raise KeyError(f"'J_ABSOLUTE' key not found in {ref_path}")
-    
-    J_ABSOLUTE_ref = ref['J_ABSOLUTE']
-    
-    if J_ABSOLUTE_ref.shape != (52, 3):
-        raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_ref.shape} != (52, 3)")
-    
-    print(f"✓ Loaded A-pose J_ABSOLUTE from {ref_path.name}")
-    
-    return J_ABSOLUTE_ref.astype(np.float64)
+# EXACT SAME J_ABSOLUTE AS MATPLOTLIB (T-pose)
+J_ABSOLUTE: NDArray[np.float64] = np.array([
+    [-0.001795, -0.223333, 0.028219], [0.067725, -0.314740, 0.021404],
+    [-0.069466, -0.313855, 0.023899], [-0.004328, -0.114370, 0.001523],
+    [0.102001, -0.689938, 0.016908], [-0.107756, -0.696424, 0.015049],
+    [0.001159, 0.020810, 0.002615], [0.088406, -1.087899, -0.026785],
+    [-0.091982, -1.094839, -0.027263], [0.002616, 0.073732, 0.028040],
+    [0.114764, -1.143690, 0.092503], [-0.117354, -1.142983, 0.096085],
+    [-0.000162, 0.287603, -0.014817], [0.081461, 0.195482, -0.006050],
+    [-0.079143, 0.192565, -0.010575], [0.004990, 0.352572, 0.036532],
+    [0.172438, 0.225951, -0.014918], [-0.175155, 0.225116, -0.019719],
+    [0.432050, 0.213179, -0.042374], [-0.428897, 0.211787, -0.041119],
+    [0.681284, 0.222165, -0.043545], [-0.684196, 0.219560, -0.046679],
+    [0.783767, 0.213183, -0.022054], [0.815568, 0.216115, -0.018788],
+    [0.837963, 0.214387, -0.018140], [0.791063, 0.216050, -0.044867],
+    [0.821578, 0.217270, -0.048936], [0.845128, 0.215785, -0.052425],
+    [0.765890, 0.208316, -0.084165], [0.781693, 0.207917, -0.094992],
+    [0.797572, 0.206667, -0.105123], [0.779095, 0.213415, -0.067855],
+    [0.806930, 0.215059, -0.072228], [0.829592, 0.213672, -0.078705],
+    [0.723217, 0.202218, -0.017008], [0.740918, 0.203986, 0.007192],
+    [0.762150, 0.200379, 0.022060], [-0.783494, 0.210911, -0.022044],
+    [-0.815675, 0.213810, -0.019676], [-0.837971, 0.212032, -0.020059],
+    [-0.791352, 0.214082, -0.045896], [-0.821700, 0.215536, -0.050057],
+    [-0.844837, 0.214110, -0.053971], [-0.767226, 0.205917, -0.086044],
+    [-0.782858, 0.205594, -0.097170], [-0.798573, 0.204555, -0.107284],
+    [-0.779985, 0.211294, -0.069581], [-0.807581, 0.213016, -0.074152],
+    [-0.829999, 0.211622, -0.081116], [-0.722013, 0.199415, -0.016553],
+    [-0.739452, 0.200249, 0.007932], [-0.760794, 0.195263, 0.022366],
+])
 
-# Load A-pose J_ABSOLUTE at module level (M3)
-J_ABSOLUTE: NDArray[np.float64] = _load_j_absolute_at_startup()
 
-# Compute RELATIVE offsets from A-pose J_ABSOLUTE
+# Compute RELATIVE offsets - EXACT SAME AS MATPLOTLIB
 SMPL_OFFSETS: NDArray[np.float64] = np.zeros((52, 3))
 for i in range(52):
     parent_idx = SMPL_H_PARENTS[i]
@@ -91,9 +92,6 @@ def load_reference_j_absolute() -> NDArray[np.float64]:
     """
     Load J_ABSOLUTE from smplh_target_reference.npz.
     
-    This function is provided for runtime loading if needed.
-    Note: J_ABSOLUTE is already loaded at module level (M3).
-    
     Returns:
         J_ABSOLUTE as (52, 3) array
         
@@ -116,6 +114,9 @@ def load_reference_j_absolute() -> NDArray[np.float64]:
     
     if J_ABSOLUTE_ref.shape != (52, 3):
         raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_ref.shape} != (52, 3)")
+    
+    print(f"✓ Loaded J_ABSOLUTE from {ref_path.name}")
+    print(f"  Shape: {J_ABSOLUTE_ref.shape}, dtype: {J_ABSOLUTE_ref.dtype}")
     
     return J_ABSOLUTE_ref.astype(np.float64)
 
