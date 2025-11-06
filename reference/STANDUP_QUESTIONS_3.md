@@ -91,14 +91,34 @@ SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
 
 more questions
 
-what is going on with the glb shape distortion?
+
 
 is using the rokoko plugin a valid strategy?
 
-How do we find a faithful representation of the original motion capture? What does 'faithful' even mean? surely the original bone lengths are encoded somewhere in the npz.
+How do we find a faithful representation of the original motion capture?
+Is there enough information in the original npz to recreate the original motion capture and preportions.
+ What does 'faithful' even mean? surely the original bone lengths are encoded somewhere in the npz. 
 Ai is struggling with this. thinks that we cannot find the bone lengths. 
 If the original animation uses a different coordinate system (e.g., Y-up) or different bone directions, the skeleton is wrong, leading to incorrect orientation and movement.
 do we do this already in create glb from npz? i think not
 
 
+from my research it seems incredibly important for retargeting the the original and the target skeleton be in as similiar as pose as possible with as similair as skeleton as possible
+problems: no way to get the original animation skeleton
+also my a pose was based on the fbx and is preportionally quite different
+
+no sdk for rokoko. everything happens in blender.
+The retargeting features are oriented toward the UI/apps (Studio/Blender/other 3D tools) rather than headless automation.
+Is the ai halucinating bpy.ops.rokoko.retarget()
+
+help(bpy.ops.rsl.retarget_animation)
+Help on _BPyOpsSubModOp in module bpy.ops:
+
+bpy.ops.rsl.retarget_animation()
+    bpy.ops.rsl.retarget_animation()
+    Retargets the animation from the source armature to the target armature
+
+no docs. how do I learn how to use this?
+
+what is going on with the glb shape distortion? it is stretching and distorting with movement
 
