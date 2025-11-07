@@ -212,60 +212,6 @@ def load_apose_rotations() -> Optional[dict]:
     return rotations
 
 
-def apply_apose_to_frame0(armature: bpy.types.Object) -> None:
-    """
-    Apply pre-baked A-pose rotations to frame 0 of the armature.
-    
-    Loads rotations from apose_rotations.npz and directly sets them on frame 0.
-    This replaces frame 0 entirely with the A-pose.
-    
-    Args:
-        armature: Blender armature object
-    """
-    try:
-        # Load pre-baked A-pose rotations
-        apose_rotations = load_apose_rotations()
-        
-        if apose_rotations is None:
-            print("Warning: apose_rotations.npz not found")
-            print("  Frame 0 will remain in mocap pose")
-            print("  Generate A-pose rotations with: src/utils/reference/generate_apose_rotations.py")
-            return
-        
-        # Set frame to 0
-        bpy.context.scene.frame_set(0)
-        
-        # Switch to POSE mode
-        bpy.context.view_layer.objects.active = armature
-        bpy.ops.object.mode_set(mode='POSE')
-        
-        pose_bones = armature.pose.bones
-        
-        # Apply pre-baked rotations to frame 0
-        bones_updated = 0
-        for bone_name, quat_array in apose_rotations.items():
-            if bone_name not in pose_bones:
-                continue
-            
-            pose_bone = pose_bones[bone_name]
-            
-            # Convert numpy array to Blender Quaternion [w, x, y, z]
-            quat = Quaternion((float(quat_array[0]), float(quat_array[1]), 
-                              float(quat_array[2]), float(quat_array[3])))
-            
-            # Set rotation and keyframe
-            pose_bone.rotation_quaternion = quat
-            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=0)
-            bones_updated += 1
-        
-        bpy.ops.object.mode_set(mode='OBJECT')
-        print(f"✓ Applied A-pose rotations to frame 0 ({bones_updated} bones)")
-        
-    except Exception as e:
-        print(f"Warning: Could not apply A-pose to frame 0: {e}")
-        print("  Frame 0 will remain in mocap pose")
-
-
 def align_root_to_reference(
     joint_positions: NDArray[np.float64],
     reference_pelvis: NDArray[np.float64]
@@ -695,10 +641,6 @@ def process_npz_file(
     bpy.ops.object.mode_set(mode='OBJECT')
     
     print("Baking complete! All bones now have keyframes on every frame.")
-    
-    # Apply A-pose to frame 0 (pre-baked rotations)
-    print("\nApplying A-pose to frame 0...")
-    apply_apose_to_frame0(armature)
     
     # Apply JSON pose to frame 0 if provided (overrides the baked frame 0 and A-pose)
     if json_pose_path:
