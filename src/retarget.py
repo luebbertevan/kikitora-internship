@@ -69,6 +69,18 @@ for i in range(52):
         SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
 
 
+# Reference A-pose joint positions exported from Blender (world space)
+APOSE_PATH = Path(__file__).parent.parent / 'data' / 'reference' / 'apose_from_blender.npz'
+if not APOSE_PATH.exists():
+    raise FileNotFoundError(
+        f"A-pose NPZ not found: {APOSE_PATH}.\n"
+        "Export it from Blender with src/utils/reference/export_apose_from_blender.py"
+    )
+
+APOSE_DATA = np.load(str(APOSE_PATH))
+J_ABSOLUTE_APOSE: NDArray[np.float64] = APOSE_DATA['J_ABSOLUTE']
+
+
 def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np.float64]:
     """Convert axis-angle to rotation matrix using Rodrigues' formula"""
     angle: float = np.linalg.norm(axis_angle)
@@ -88,73 +100,6 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     R: NDArray[np.float64] = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
     return R
 
-
-def load_apose_j_absolute() -> NDArray[np.float64]:
-    """
-    Load A-pose J_ABSOLUTE from apose_from_blender.npz.
-    
-    This is used ONLY for frame 0 override (visual A-pose starting frame).
-    FK uses T-pose SMPL_OFFSETS (mocap rotations are relative to T-pose).
-    
-    Returns:
-        A-pose J_ABSOLUTE as (52, 3) array
-        
-    Raises:
-        FileNotFoundError: If A-pose NPZ file not found
-        KeyError: If 'J_ABSOLUTE' key not found in NPZ
-        ValueError: If J_ABSOLUTE shape is not (52, 3)
-    """
-    apose_path = Path(__file__).parent.parent / 'data' / 'reference' / 'apose_from_blender.npz'
-    
-    if not apose_path.exists():
-        raise FileNotFoundError(f"A-pose NPZ file not found: {apose_path}")
-    
-    apose_data = np.load(str(apose_path))
-    
-    if 'J_ABSOLUTE' not in apose_data:
-        raise KeyError(f"'J_ABSOLUTE' key not found in {apose_path}")
-    
-    J_ABSOLUTE_apose = apose_data['J_ABSOLUTE']
-    
-    if J_ABSOLUTE_apose.shape != (52, 3):
-        raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_apose.shape} != (52, 3)")
-    
-    return J_ABSOLUTE_apose.astype(np.float64)
-
-
-def load_reference_j_absolute() -> NDArray[np.float64]:
-    """
-    Load J_ABSOLUTE from smplh_target_reference.npz (legacy reference).
-    
-    This is kept for backward compatibility but is not used for retargeting.
-    Retargeting now uses A-pose from apose_from_blender.npz.
-    
-    Returns:
-        J_ABSOLUTE as (52, 3) array
-        
-    Raises:
-        FileNotFoundError: If reference NPZ file not found
-        KeyError: If 'J_ABSOLUTE' key not found in NPZ
-        ValueError: If J_ABSOLUTE shape is not (52, 3)
-    """
-    ref_path = Path(__file__).parent.parent / 'data' / 'reference' / 'smplh_target_reference.npz'
-    
-    if not ref_path.exists():
-        raise FileNotFoundError(f"Reference NPZ file not found: {ref_path}")
-    
-    ref = np.load(str(ref_path))
-    
-    if 'J_ABSOLUTE' not in ref:
-        raise KeyError(f"'J_ABSOLUTE' key not found in {ref_path}")
-    
-    J_ABSOLUTE_ref = ref['J_ABSOLUTE']
-    
-    if J_ABSOLUTE_ref.shape != (52, 3):
-        raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_ref.shape} != (52, 3)")
-    
-    return J_ABSOLUTE_ref.astype(np.float64)
-
-
 def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
     """
     Load reference pelvis position from A-pose NPZ (for frame 0 alignment).
@@ -162,12 +107,7 @@ def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
     Returns:
         A-pose pelvis position as (3,) array, or None if not found
     """
-    try:
-        J_ABSOLUTE_apose = load_apose_j_absolute()
-        return J_ABSOLUTE_apose[0]  # Pelvis is index 0
-    except (FileNotFoundError, KeyError, ValueError) as e:
-        print(f"Warning: Could not load A-pose pelvis: {e}")
-        return None
+    return J_ABSOLUTE_APOSE[0].copy()
 
 
 def compute_rotation_between_vectors(
@@ -631,29 +571,20 @@ def process_npz_file(
         empty.empty_display_size = 0.02
         empties.append(empty)
     
-    # M3: Calculate translation offset from frame 0 to align with reference (once)
-    translation_offset = np.zeros(3)
-    if reference_pelvis is not None:
-        # Get frame 0 pelvis position BEFORE alignment
-        frame0_joints = forward_kinematics(poses[0], trans[0])
-        frame0_pelvis = frame0_joints[0, :]  # Pelvis is index 0
-        # Calculate the offset needed to move frame 0 pelvis to reference
-        translation_offset = reference_pelvis - frame0_pelvis
-        print(f"✓ Translation offset calculated: {translation_offset}")
-        print(f"  This will move entire animation so frame 0 pelvis is at reference position")
-    
-    # Animate empties using computed forward kinematics - ALL FRAMES PROCESSED THE SAME WAY
+    # Frame 0: keyframe Blender A-pose world positions directly
+    bpy.context.scene.frame_set(0)
+    for i, empty in enumerate(empties):
+        empty.location = Vector(J_ABSOLUTE_APOSE[i])
+        empty.keyframe_insert(data_path="location", frame=0)
+
+    # Animate empties using computed forward kinematics for remaining frames
     frame_skip: int = 1  # Keyframe every frame
-    print("Processing all frames with forward kinematics (no special frame 0 handling)...")
-    for frame_idx in range(0, len(poses), frame_skip):
+    print("Processing frames 1..N with forward kinematics (frame 0 uses Blender A-pose)...")
+    for frame_idx in range(1, len(poses), frame_skip):
         bpy.context.scene.frame_set(frame_idx)
         
         # Compute joint positions using EXACT SAME forward kinematics
         joint_positions: NDArray[np.float64] = forward_kinematics(poses[frame_idx], trans[frame_idx])
-        
-        # M3: Apply the same translation offset to all frames (moves entire animation)
-        if reference_pelvis is not None:
-            joint_positions = joint_positions + translation_offset[np.newaxis, :]
         
         # Set empty positions
         for i in range(52):

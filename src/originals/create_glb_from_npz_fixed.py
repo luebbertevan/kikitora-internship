@@ -449,10 +449,7 @@ def process_npz_file(
                         parent_name: str = JOINT_NAMES[parent_idx] if parent_idx < len(JOINT_NAMES) else f"Joint_{parent_idx}"
                         parent_bone = pose_bones.get(parent_name)
                         if parent_bone:
-                            rot_constraint = pose_bone.constraints.new('COPY_ROTATION')
-                            rot_constraint.target = armature
-                            rot_constraint.subtarget = parent_name
-                            rot_constraint.name = "Copy_Parent_Rotation"
+ 
                 # R_Foot needs negative Y tracking
                 elif i == 11:  # R_Foot
                     track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
