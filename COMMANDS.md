@@ -205,4 +205,8 @@ blender --background --python src/originals/original_retarget.py -- \
 
 
 
-/Applications/Blender.app/Contents/MacOS/Blender /Users/evan/Blender/KikiTora-Internship/New-A-Pose.blend --background --python src/utils/reference/export_apose_from_blender.py -- data/reference/apose_from_blender.npz --rest-pose
+/Applications/Blender.app/Contents/MacOS/Blender \
+  /Users/evan/Blender/KikiTora-Internship/New-A-Pose.blend \
+  --background \
+  --python src/utils/reference/export_apose_from_blender.py \
+  -- data/reference/apose_from_blender.npz

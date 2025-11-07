@@ -80,6 +80,11 @@ if not APOSE_PATH.exists():
 APOSE_DATA = np.load(str(APOSE_PATH))
 J_ABSOLUTE_APOSE: NDArray[np.float64] = APOSE_DATA['J_ABSOLUTE']
 
+print("=== A-pose J_ABSOLUTE (from Blender) ===")
+for idx, joint_name in enumerate(JOINT_NAMES):
+    coords = J_ABSOLUTE_APOSE[idx]
+    print(f"{idx:02d} {joint_name:15s}: {coords}")
+
 
 def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np.float64]:
     """Convert axis-angle to rotation matrix using Rodrigues' formula"""
