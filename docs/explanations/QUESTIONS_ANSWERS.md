@@ -758,3 +758,36 @@ You can safely ignore these for now. They're part of the full SMPL model but not
 3. **Compare frames**: Look at frame 0 vs frame 10, see what changed
 4. **Inspect GLB**: Load retargeted GLB, check bone keyframes
 5. **Test validation**: Run validation on known good/bad files
+
+
+
+
+so what you are saying is that setting the empties at frame 0 to the joint locations of the A-pose does not work?
+
+Not by itself. When you set the empties at frame 0 to the Blender A‑pose, those empties are no longer aligned with the armature rest pose (which we built from the mocap frame 0 FK). The bones still start in the mocap T-pose geometry, so the constraints either leave the bones in place (if they only aim) or apply a second translation (if they also copy location), and the rig snaps back toward the mocap pose. To actually get frame 0 into the A‑pose you also need to change the underlying setup—either build the armature from the A‑pose rest positions, or convert the mocap rotations so frame 0 is identity relative to that rest pose. The empties override by itself isn’t enough.
+
+
+When we build the Blender armature, we take whatever joint positions we give it and treat those as the **rest pose** (the static geometry, parent–child offsets, etc). In our current pipeline:
+
+1. We run forward kinematics on mocap frame 0 (`forward_kinematics(poses[0], trans[0])`), align the pelvis to the reference D-plane a bit, and use those 52 coordinates to create the armature. That frame‑0 FK skeleton is the **rest pose** of the armature—we copy those positions into each bone’s head/tail (that’s the snippet around line ~500 in `retarget.py`).
+
+2. When we later apply constraints (track empties, copy rotation/location, etc.), Blender starts from that rest geometry. Parent bones decide the child head positions; the empties just act as targets.
+
+So even if an empty is at A-pose coordinates, if the armature was constructed with mocap frame 0 offsets, the parent tail/child head distances don’t match. Blender will either leave the bone heads where the rest pose expects them (if the constraint only rotates) or displace them twice (if we copy absolute locations) — either way the rig snaps back toward the mocap configuration.
+
+### Aren’t constraints based on global joint positions?
+
+Constraints like `COPY_LOCATION`, `DAMPED_TRACK`, etc., target global positions, yes. But they still act within the rig hierarchy. Examples:
+
+- `DAMPED_TRACK` just aims the bone; it doesn’t move the head. The head location is dictated by the parent’s tail (rest geometry).
+- `COPY_LOCATION` applies a world translation to the bone’s origin (the head), but the parent’s transform is still there, so if the parent already puts the head somewhere else, adding that translation displaces the chain.
+- `STRETCH_TO` adjusts scale to reach the target—this is what distorted frame 0 before.
+
+So unless the armature’s rest pose matches the empties’ geometry, you’ll always see the rig snap or stretch.
+
+### Summary
+
+- **Rest pose = geometry the armature was built with** (currently mocap frame 0 FK).
+- **Empties = world-space targets** (Blender A‑pose).
+- Because those don’t match, constraint evaluation either fails to move the bones or double-applies transforms.
+- To make the frame 0 empties approach work, rebuild the armature from the Blender A‑pose **or** rebase the mocap rotations to that rest pose. Without that alignment, forcibly re-positioning empties will always give you a distorted frame 0.

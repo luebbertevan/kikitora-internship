@@ -77,8 +77,12 @@ def extract_j_absolute_from_rest_pose(armature_obj: bpy.types.Object) -> np.ndar
             raise KeyError(f"Bone '{joint_name}' not found in armature")
         
         bone = edit_bones[joint_name]
-        head = bone.head
-        J_ABSOLUTE[i] = np.array([head.x, head.y, head.z], dtype=np.float64)
+        head_local = bone.head.to_4d()
+        head_world = armature_obj.matrix_world @ head_local
+        J_ABSOLUTE[i] = np.array([head_world.x, head_world.y, head_world.z], dtype=np.float64)
+        if joint_name == "Pelvis":
+            tail_world = armature_obj.matrix_world @ bone.tail.to_4d()
+            print(f"[REST] Pelvis head: {J_ABSOLUTE[i]}, tail: {[tail_world.x, tail_world.y, tail_world.z]}")
     
     bpy.ops.object.mode_set(mode='OBJECT')
     return J_ABSOLUTE
@@ -106,16 +110,13 @@ def extract_j_absolute_and_rotations_from_posed(armature_obj: bpy.types.Object) 
 
         pose_bone = pose_bones[joint_name]
 
-        # Get rest pose head in armature local space
-        head_local = Vector(pose_bone.bone.head_local)
-
-        # Transform by pose matrix (gives posed position in armature space)
-        head_posed_armature_space = pose_bone.matrix @ head_local
-
-        # Transform to world space
-        head_world = armature_matrix @ head_posed_armature_space
-
+        head_local = Vector(pose_bone.bone.head_local).to_4d()
+        head_world = armature_matrix @ (pose_bone.matrix @ head_local)
         J_ABSOLUTE[i] = np.array([head_world.x, head_world.y, head_world.z], dtype=np.float64)
+        if joint_name == "Pelvis":
+            tail_local = Vector(pose_bone.bone.tail_local).to_4d()
+            tail_world = armature_matrix @ (pose_bone.matrix @ tail_local)
+            print(f"[POSED] Pelvis head: {J_ABSOLUTE[i]}, tail: {[tail_world.x, tail_world.y, tail_world.z]}")
         
         # Extract rotation quaternion (local rotation)
         quat = pose_bone.rotation_quaternion
@@ -151,22 +152,16 @@ def compute_smpl_offsets(J_ABSOLUTE: np.ndarray) -> np.ndarray:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Export J_ABSOLUTE from Blender armature to NPZ")
-    parser.add_argument("output_npz", type=Path, help="Output NPZ file path")
-    parser.add_argument("--rest-pose", action="store_true", 
-                       help="Export from rest pose (edit_bones). Default: export from posed state")
-    parser.add_argument("--posed", action="store_true",
-                       help="Export from posed state (world positions after rotations). Default if neither flag specified")
-    
+    parser = argparse.ArgumentParser(
+        description="Export A-pose J_ABSOLUTE (world space) from Blender armature to NPZ."
+    )
+    parser.add_argument(
+        "output_npz",
+        type=Path,
+        help="Output NPZ file path (e.g., data/reference/apose_from_blender.npz)",
+    )
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
-    
     output_path = args.output_npz
-    use_rest_pose = args.rest_pose
-    use_posed = args.posed
-    
-    # Default to posed if neither flag specified
-    if not use_rest_pose and not use_posed:
-        use_posed = True
     
     print("="*80)
     print("Export A-Pose from Blender Armature")
@@ -179,45 +174,26 @@ def main():
         print("   Please ensure an armature object exists in the Blender scene")
         sys.exit(1)
     
-    print(f"\n✓ Found armature: {armature_obj.name}")
+    print(f"\n✓ Found armature: {armature_obj.name} (scale={armature_obj.scale})")
+    print(f"Matrix world:\n{armature_obj.matrix_world}")
     
-    # Extract J_ABSOLUTE and rotations
-    if use_rest_pose:
-        print("\n📊 Extracting from REST POSE (edit_bones)...")
-        J_ABSOLUTE = extract_j_absolute_from_rest_pose(armature_obj)
-        SMPL_OFFSETS = compute_smpl_offsets(J_ABSOLUTE)
-        
-        print(f"✓ Extracted J_ABSOLUTE: shape {J_ABSOLUTE.shape}")
-        print(f"  Pelvis (joint 0): {J_ABSOLUTE[0]}")
-        print(f"✓ Computed SMPL_OFFSETS: shape {SMPL_OFFSETS.shape}")
-        
-        # Save to NPZ (no rotations for rest pose)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(
-            str(output_path),
-            J_ABSOLUTE=J_ABSOLUTE,
-            SMPL_OFFSETS=SMPL_OFFSETS,
-            JOINT_NAMES=np.array(JOINT_NAMES)
-        )
-    else:
-        print("\n📊 Extracting from POSED STATE (world positions + rotations)...")
-        J_ABSOLUTE, pose_rotations = extract_j_absolute_and_rotations_from_posed(armature_obj)
-        SMPL_OFFSETS = compute_smpl_offsets(J_ABSOLUTE)
-        
-        print(f"✓ Extracted J_ABSOLUTE: shape {J_ABSOLUTE.shape}")
-        print(f"  Pelvis (joint 0): {J_ABSOLUTE[0]}")
-        print(f"✓ Computed SMPL_OFFSETS: shape {SMPL_OFFSETS.shape}")
-        print(f"✓ Extracted pose rotations: {len(pose_rotations)} bones")
-        
-        # Save to NPZ (including rotations)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        save_dict = {
-            'J_ABSOLUTE': J_ABSOLUTE,
-            'SMPL_OFFSETS': SMPL_OFFSETS,
-            'JOINT_NAMES': np.array(JOINT_NAMES)
-        }
-        save_dict.update(pose_rotations)  # Add all bone rotations
-        np.savez(str(output_path), **save_dict)
+    print("\n📊 Extracting from REST POSE (edit_bones)...")
+    J_ABSOLUTE = extract_j_absolute_from_rest_pose(armature_obj)
+    SMPL_OFFSETS = compute_smpl_offsets(J_ABSOLUTE)
+    
+    print(f"✓ Extracted J_ABSOLUTE: shape {J_ABSOLUTE.shape}")
+    print("=== J_ABSOLUTE (world space) ===")
+    for idx, name in enumerate(JOINT_NAMES):
+        print(f"{idx:02d} {name:15s}: {J_ABSOLUTE[idx]}")
+    print(f"✓ Computed SMPL_OFFSETS: shape {SMPL_OFFSETS.shape}")
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        str(output_path),
+        J_ABSOLUTE=J_ABSOLUTE,
+        SMPL_OFFSETS=SMPL_OFFSETS,
+        JOINT_NAMES=np.array(JOINT_NAMES)
+    )
     
     print(f"\n✅ Saved to: {output_path}")
     print(f"   Keys: J_ABSOLUTE, SMPL_OFFSETS, JOINT_NAMES")
