@@ -27,7 +27,8 @@ JOINT_NAMES: List[str] = [
     "L_Elbow", "R_Elbow", "L_Wrist", "R_Wrist"
 ] + [f"L_Hand_{i}" for i in range(15)] + [f"R_Hand_{i}" for i in range(15)]
 
-# EXACT SAME J_ABSOLUTE AS MATPLOTLIB (T-pose)
+# T-pose J_ABSOLUTE - used for SMPL_OFFSETS (bone lengths for FK)
+# Mocap rotations are relative to T-pose, so we need T-pose bone directions for FK
 J_ABSOLUTE: NDArray[np.float64] = np.array([
     [-0.001795, -0.223333, 0.028219], [0.067725, -0.314740, 0.021404],
     [-0.069466, -0.313855, 0.023899], [-0.004328, -0.114370, 0.001523],
@@ -57,8 +58,8 @@ J_ABSOLUTE: NDArray[np.float64] = np.array([
     [-0.739452, 0.200249, 0.007932], [-0.760794, 0.195263, 0.022366],
 ])
 
-
-# Compute RELATIVE offsets - EXACT SAME AS MATPLOTLIB
+# Compute RELATIVE offsets from T-pose J_ABSOLUTE
+# These are used in forward kinematics - mocap rotations are relative to T-pose
 SMPL_OFFSETS: NDArray[np.float64] = np.zeros((52, 3))
 for i in range(52):
     parent_idx = SMPL_H_PARENTS[i]
@@ -88,9 +89,45 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     return R
 
 
+def load_apose_j_absolute() -> NDArray[np.float64]:
+    """
+    Load A-pose J_ABSOLUTE from apose_from_blender.npz.
+    
+    This is used ONLY for frame 0 override (visual A-pose starting frame).
+    FK uses T-pose SMPL_OFFSETS (mocap rotations are relative to T-pose).
+    
+    Returns:
+        A-pose J_ABSOLUTE as (52, 3) array
+        
+    Raises:
+        FileNotFoundError: If A-pose NPZ file not found
+        KeyError: If 'J_ABSOLUTE' key not found in NPZ
+        ValueError: If J_ABSOLUTE shape is not (52, 3)
+    """
+    apose_path = Path(__file__).parent.parent / 'data' / 'reference' / 'apose_from_blender.npz'
+    
+    if not apose_path.exists():
+        raise FileNotFoundError(f"A-pose NPZ file not found: {apose_path}")
+    
+    apose_data = np.load(str(apose_path))
+    
+    if 'J_ABSOLUTE' not in apose_data:
+        raise KeyError(f"'J_ABSOLUTE' key not found in {apose_path}")
+    
+    J_ABSOLUTE_apose = apose_data['J_ABSOLUTE']
+    
+    if J_ABSOLUTE_apose.shape != (52, 3):
+        raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_apose.shape} != (52, 3)")
+    
+    return J_ABSOLUTE_apose.astype(np.float64)
+
+
 def load_reference_j_absolute() -> NDArray[np.float64]:
     """
-    Load J_ABSOLUTE from smplh_target_reference.npz.
+    Load J_ABSOLUTE from smplh_target_reference.npz (legacy reference).
+    
+    This is kept for backward compatibility but is not used for retargeting.
+    Retargeting now uses A-pose from apose_from_blender.npz.
     
     Returns:
         J_ABSOLUTE as (52, 3) array
@@ -115,25 +152,178 @@ def load_reference_j_absolute() -> NDArray[np.float64]:
     if J_ABSOLUTE_ref.shape != (52, 3):
         raise ValueError(f"J_ABSOLUTE shape {J_ABSOLUTE_ref.shape} != (52, 3)")
     
-    print(f"✓ Loaded J_ABSOLUTE from {ref_path.name}")
-    print(f"  Shape: {J_ABSOLUTE_ref.shape}, dtype: {J_ABSOLUTE_ref.dtype}")
-    
     return J_ABSOLUTE_ref.astype(np.float64)
 
 
 def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
     """
-    Load reference pelvis position from smplh_target_reference.npz.
+    Load reference pelvis position from A-pose NPZ (for frame 0 alignment).
     
     Returns:
-        Reference pelvis position as (3,) array, or None if not found
+        A-pose pelvis position as (3,) array, or None if not found
     """
     try:
-        J_ABSOLUTE_ref = load_reference_j_absolute()
-        return J_ABSOLUTE_ref[0]  # Pelvis is index 0
+        J_ABSOLUTE_apose = load_apose_j_absolute()
+        return J_ABSOLUTE_apose[0]  # Pelvis is index 0
     except (FileNotFoundError, KeyError, ValueError) as e:
-        print(f"Warning: Could not load reference pelvis: {e}")
+        print(f"Warning: Could not load A-pose pelvis: {e}")
         return None
+
+
+def compute_rotation_between_vectors(
+    vec_from: NDArray[np.float64],
+    vec_to: NDArray[np.float64]
+) -> Quaternion:
+    """
+    Compute rotation quaternion that transforms vec_from to vec_to.
+    
+    Args:
+        vec_from: Source direction vector (normalized)
+        vec_to: Target direction vector (normalized)
+        
+    Returns:
+        Quaternion rotation
+    """
+    # Normalize vectors
+    vec_from_norm = vec_from / np.linalg.norm(vec_from)
+    vec_to_norm = vec_to / np.linalg.norm(vec_to)
+    
+    # Handle parallel vectors
+    dot = np.dot(vec_from_norm, vec_to_norm)
+    if abs(dot - 1.0) < 1e-6:
+        # Vectors are parallel, no rotation needed
+        return Quaternion((1.0, 0.0, 0.0, 0.0))
+    elif abs(dot + 1.0) < 1e-6:
+        # Vectors are opposite, use 180° rotation around perpendicular axis
+        # Find a perpendicular vector
+        if abs(vec_from_norm[0]) < 0.9:
+            perp = np.cross(vec_from_norm, np.array([1.0, 0.0, 0.0]))
+        else:
+            perp = np.cross(vec_from_norm, np.array([0.0, 1.0, 0.0]))
+        perp = perp / np.linalg.norm(perp)
+        return Quaternion((0.0, perp[0], perp[1], perp[2]))
+    
+    # Compute rotation axis and angle
+    axis = np.cross(vec_from_norm, vec_to_norm)
+    axis = axis / np.linalg.norm(axis)
+    angle = np.arccos(np.clip(dot, -1.0, 1.0))
+    
+    # Convert to quaternion
+    quat = Quaternion(axis, angle)
+    return quat
+
+
+def compute_apose_rotations_from_j_absolute(
+    tpose_j_absolute: NDArray[np.float64],
+    apose_j_absolute: NDArray[np.float64]
+) -> List[Optional[Quaternion]]:
+    """
+    Compute rotations needed to transform from T-pose to A-pose for each bone.
+    
+    For each bone, computes the rotation that transforms the bone's direction
+    vector from T-pose to A-pose.
+    
+    Args:
+        tpose_j_absolute: T-pose joint positions (52, 3)
+        apose_j_absolute: A-pose joint positions (52, 3)
+        
+    Returns:
+        List of 52 quaternions (None for root bone, rotation quaternion for others)
+    """
+    rotations: List[Optional[Quaternion]] = [None] * 52
+    
+    for i in range(52):
+        parent_idx = int(SMPL_H_PARENTS[i])
+        
+        if parent_idx == -1:
+            # Root bone (Pelvis) - no rotation, only translation
+            rotations[i] = None
+        else:
+            # Compute bone direction vectors
+            tpose_dir = tpose_j_absolute[i] - tpose_j_absolute[parent_idx]
+            apose_dir = apose_j_absolute[i] - apose_j_absolute[parent_idx]
+            
+            # Skip zero-length bones
+            if np.linalg.norm(tpose_dir) < 1e-6 or np.linalg.norm(apose_dir) < 1e-6:
+                rotations[i] = Quaternion((1.0, 0.0, 0.0, 0.0))
+                continue
+            
+            # Compute rotation from T-pose to A-pose direction
+            rotations[i] = compute_rotation_between_vectors(tpose_dir, apose_dir)
+    
+    return rotations
+
+
+def load_apose_rotations() -> Optional[dict]:
+    """
+    Load pre-baked A-pose bone rotations from NPZ file.
+    
+    Returns:
+        Dictionary mapping bone names to quaternion arrays [w, x, y, z],
+        or None if file not found
+    """
+    apose_rotations_path = Path(__file__).parent.parent / 'data' / 'reference' / 'apose_rotations.npz'
+    
+    if not apose_rotations_path.exists():
+        return None
+    
+    data = np.load(str(apose_rotations_path))
+    rotations = {key: data[key] for key in data.files}
+    return rotations
+
+
+def apply_apose_to_frame0(armature: bpy.types.Object) -> None:
+    """
+    Apply pre-baked A-pose rotations to frame 0 of the armature.
+    
+    Loads rotations from apose_rotations.npz and directly sets them on frame 0.
+    This replaces frame 0 entirely with the A-pose.
+    
+    Args:
+        armature: Blender armature object
+    """
+    try:
+        # Load pre-baked A-pose rotations
+        apose_rotations = load_apose_rotations()
+        
+        if apose_rotations is None:
+            print("Warning: apose_rotations.npz not found")
+            print("  Frame 0 will remain in mocap pose")
+            print("  Generate A-pose rotations with: src/utils/reference/generate_apose_rotations.py")
+            return
+        
+        # Set frame to 0
+        bpy.context.scene.frame_set(0)
+        
+        # Switch to POSE mode
+        bpy.context.view_layer.objects.active = armature
+        bpy.ops.object.mode_set(mode='POSE')
+        
+        pose_bones = armature.pose.bones
+        
+        # Apply pre-baked rotations to frame 0
+        bones_updated = 0
+        for bone_name, quat_array in apose_rotations.items():
+            if bone_name not in pose_bones:
+                continue
+            
+            pose_bone = pose_bones[bone_name]
+            
+            # Convert numpy array to Blender Quaternion [w, x, y, z]
+            quat = Quaternion((float(quat_array[0]), float(quat_array[1]), 
+                              float(quat_array[2]), float(quat_array[3])))
+            
+            # Set rotation and keyframe
+            pose_bone.rotation_quaternion = quat
+            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=0)
+            bones_updated += 1
+        
+        bpy.ops.object.mode_set(mode='OBJECT')
+        print(f"✓ Applied A-pose rotations to frame 0 ({bones_updated} bones)")
+        
+    except Exception as e:
+        print(f"Warning: Could not apply A-pose to frame 0: {e}")
+        print("  Frame 0 will remain in mocap pose")
 
 
 def align_root_to_reference(
@@ -579,9 +769,13 @@ def process_npz_file(
     
     print("Baking complete! All bones now have keyframes on every frame.")
     
-    # Apply JSON pose to frame 0 if provided (overrides the baked frame 0)
+    # Apply A-pose to frame 0 (pre-baked rotations)
+    print("\nApplying A-pose to frame 0...")
+    apply_apose_to_frame0(armature)
+    
+    # Apply JSON pose to frame 0 if provided (overrides the baked frame 0 and A-pose)
     if json_pose_path:
-        print("\nApplying JSON pose to frame 0...")
+        print("\nApplying JSON pose to frame 0 (overrides A-pose)...")
         apply_json_pose_to_frame0(armature, json_pose_path)
     
     # Delete empties after baking (no longer needed)
