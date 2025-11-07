@@ -620,13 +620,11 @@ def process_npz_file(
                 constraint.target = empties[i]
                 constraint.name = "Track_Root_Location"
                 
-                # Stretch toward Spine1 to show the main trunk connection
-                stretch_constraint = pose_bone.constraints.new('STRETCH_TO')
-                stretch_constraint.target = empties[3]  # Spine1
-                stretch_constraint.name = "Track_To_Spine1"
-                stretch_constraint.rest_length = 0.0
-                stretch_constraint.bulge = 0.0
-                stretch_constraint.keep_axis = 'SWING_Y'
+                # Aim pelvis toward Spine1 without stretching
+                track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
+                track_constraint.target = empties[3]  # Spine1
+                track_constraint.name = "Track_To_Spine1"
+                track_constraint.track_axis = 'TRACK_Y'
             
             # End bones (no children) - only use damped track for orientation
             elif len(children) == 0:
@@ -659,14 +657,12 @@ def process_npz_file(
             
             # Regular bones with children
             else:
-                # Bone should point toward its first child
+                # Bone should point toward its first child without changing length
                 child_idx: int = children[0]
-                constraint = pose_bone.constraints.new('STRETCH_TO')
-                constraint.target = empties[child_idx]
-                constraint.name = f"Track_To_Child_{child_idx}"
-                constraint.rest_length = 0.0
-                constraint.bulge = 0.0
-                constraint.keep_axis = 'SWING_Y'
+                track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
+                track_constraint.target = empties[child_idx]
+                track_constraint.name = f"Track_To_Child_{child_idx}"
+                track_constraint.track_axis = 'TRACK_Y'
     
     bpy.ops.object.mode_set(mode='OBJECT')
     
