@@ -161,93 +161,6 @@ def clear_all_data_blocks() -> None:
     print("Cleared all data blocks")
 
 
-def apply_json_pose_to_frame0(armature: bpy.types.Object, json_filepath: str) -> None:
-    """
-    Load pose from JSON and apply it to frame 0 of the armature using world-space matrices
-    
-    Args:
-        armature: The armature object
-        json_filepath: Path to the JSON file with pose data
-    """
-    print(f"Loading pose from: {json_filepath}")
-    
-    try:
-        with open(json_filepath, 'r') as f:
-            pose_data = json.load(f)
-    except FileNotFoundError:
-        print(f"Warning: JSON file not found at {json_filepath}. Skipping frame 0 pose override.")
-        return
-    
-    # Set to frame 0
-    bpy.context.scene.frame_set(0)
-    
-    # Switch to pose mode
-    bpy.context.view_layer.objects.active = armature
-    bpy.ops.object.mode_set(mode='POSE')
-    
-    bones_data = pose_data.get('bones', {})
-    
-    if not bones_data:
-        print("Warning: No bones data found in JSON file.")
-        bpy.ops.object.mode_set(mode='OBJECT')
-        return
-    
-    bones_applied = 0
-    # Apply pose using world-space matrix for accurate positioning
-    for bone_name, bone_info in bones_data.items():
-        pose_bone = armature.pose.bones.get(bone_name)
-        
-        if pose_bone and 'pose' in bone_info:
-            pose_info = bone_info['pose']
-            
-            # Use matrix_world if available (most accurate)
-            if 'matrix_world' in pose_info:
-                # Convert list to Matrix
-                matrix_data = pose_info['matrix_world']
-                target_matrix: Matrix = Matrix([
-                    matrix_data[0],
-                    matrix_data[1],
-                    matrix_data[2],
-                    matrix_data[3]
-                ])
-                
-                # Set the pose bone's matrix directly
-                pose_bone.matrix = target_matrix
-                bones_applied += 1
-                
-            else:
-                # Fallback to local transforms if matrix_world not available
-                if 'location' in pose_info:
-                    pose_bone.location = Vector(pose_info['location'])
-                
-                if 'rotation_quaternion' in pose_info:
-                    pose_bone.rotation_mode = 'QUATERNION'
-                    pose_bone.rotation_quaternion = Quaternion(pose_info['rotation_quaternion'])
-                elif 'rotation_euler' in pose_info:
-                    rotation_mode = pose_info.get('rotation_mode', 'XYZ')
-                    pose_bone.rotation_mode = rotation_mode
-                    pose_bone.rotation_euler = Euler(pose_info['rotation_euler'], rotation_mode)
-                
-                bones_applied += 1
-            
-            # Force update
-            bpy.context.view_layer.update()
-            
-            # Keyframe the result - use visual keying to capture final transform
-            pose_bone.keyframe_insert(data_path="location", frame=0, options={'INSERTKEY_VISUAL'})
-            
-            # Keyframe rotation in whatever mode the bone is in
-            if pose_bone.rotation_mode == 'QUATERNION':
-                pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=0, options={'INSERTKEY_VISUAL'})
-            else:
-                pose_bone.keyframe_insert(data_path="rotation_euler", frame=0, options={'INSERTKEY_VISUAL'})
-    
-    bpy.ops.object.mode_set(mode='OBJECT')
-    print(f"JSON pose applied to frame 0! ({bones_applied} bones updated)")
-
-
-
-
 def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 1.0, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
     """
     Add a cube mesh and parent it to the armature
@@ -449,6 +362,10 @@ def process_npz_file(
                         parent_name: str = JOINT_NAMES[parent_idx] if parent_idx < len(JOINT_NAMES) else f"Joint_{parent_idx}"
                         parent_bone = pose_bones.get(parent_name)
                         if parent_bone:
+                            rot_constraint = pose_bone.constraints.new('COPY_ROTATION')
+                            rot_constraint.target = armature
+                            rot_constraint.subtarget = parent_name
+                            rot_constraint.name = "Copy_Parent_Rotation"
  
                 # R_Foot needs negative Y tracking
                 elif i == 11:  # R_Foot
@@ -511,11 +428,6 @@ def process_npz_file(
     bpy.ops.object.mode_set(mode='OBJECT')
     
     print("Baking complete! All bones now have keyframes on every frame.")
-    
-    # Apply JSON pose to frame 0 if provided (overrides the baked frame 0)
-    if json_pose_path:
-        print("\nApplying JSON pose to frame 0...")
-        apply_json_pose_to_frame0(armature, json_pose_path)
     
     # Delete empties after baking (no longer needed)
     print("Removing empties...")
