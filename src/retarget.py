@@ -594,34 +594,11 @@ def process_npz_file(
                 track_constraint.name = "Track_To_Spine1"
                 track_constraint.track_axis = 'TRACK_Y'
             
-            # End bones (no children) - only use damped track for orientation
+            # End bones (no children) - for now we only care about head position
             elif len(children) == 0:
-                # Special handling for specific problematic end bones
-                joint_name = JOINT_NAMES[i] if i < len(JOINT_NAMES) else f"Joint_{i}"
-                
-                # Head and all finger end bones - copy rotation from parent
-                if i == 15 or (i >= 22 and i <= 51):  # Head or any hand bone
-                    parent_idx = int(SMPL_H_PARENTS[i])
-                    if parent_idx >= 0:
-                        parent_name: str = JOINT_NAMES[parent_idx] if parent_idx < len(JOINT_NAMES) else f"Joint_{parent_idx}"
-                        parent_bone = pose_bones.get(parent_name)
-                        if parent_bone:
-                            rot_constraint = pose_bone.constraints.new('COPY_ROTATION')
-                            rot_constraint.target = armature
-                            rot_constraint.subtarget = parent_name
-                            rot_constraint.name = "Copy_Parent_Rotation"
-                # R_Foot needs negative Y tracking
-                elif i == 11:  # R_Foot
-                    track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
-                    track_constraint.target = empties[i]
-                    track_constraint.name = "Track_Self_Neg"
-                    track_constraint.track_axis = 'TRACK_NEGATIVE_Y'
-                else:
-                    # Normal end bones (L_Foot and others)
-                    track_constraint = pose_bone.constraints.new('COPY_LOCATION')
-                    track_constraint.target = empties[i]
-                    track_constraint.name = "Track_Self"
-                    #track_constraint.track_axis = 'TRACK_Y'
+                track_constraint = pose_bone.constraints.new('COPY_LOCATION')
+                track_constraint.target = empties[i]
+                track_constraint.name = "Track_End_Location"
             
             # Regular bones with children
             else:
