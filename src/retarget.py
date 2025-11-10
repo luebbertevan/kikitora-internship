@@ -473,7 +473,7 @@ def process_npz_file(
     
     # Compute joint positions for first frame to create armature - THIS IS CRITICAL!
     # Using actual frame 0 pose data instead of T-pose ensures correct bone orientations
-    joint_positions_frame0: NDArray[np.float64] = forward_kinematics(poses[0], trans[0]) 
+    joint_positions_frame0: NDArray[np.float64] = J_ABSOLUTE_APOSE #forward_kinematics(poses[0], trans[0]) 
     print("Using frame 0 pose (from FK) for armature creation")
     
     # M3: Align root to reference pelvis position
@@ -618,19 +618,19 @@ def process_npz_file(
                     track_constraint.track_axis = 'TRACK_NEGATIVE_Y'
                 else:
                     # Normal end bones (L_Foot and others)
-                    track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
+                    track_constraint = pose_bone.constraints.new('COPY_LOCATION')
                     track_constraint.target = empties[i]
                     track_constraint.name = "Track_Self"
-                    track_constraint.track_axis = 'TRACK_Y'
+                    #track_constraint.track_axis = 'TRACK_Y'
             
             # Regular bones with children
             else:
                 # Bone should point toward its first child without changing length
                 child_idx: int = children[0]
-                track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
-                track_constraint.target = empties[child_idx]
-                track_constraint.name = f"Track_To_Child_{child_idx}"
-                track_constraint.track_axis = 'TRACK_Y'
+                track_constraint = pose_bone.constraints.new('COPY_LOCATION')
+                track_constraint.target = empties[i]
+                track_constraint.name = f"Track_To_Child_{i}"
+               #track_constraint.track_axis = 'TRACK_Y'
     
     bpy.ops.object.mode_set(mode='OBJECT')
     

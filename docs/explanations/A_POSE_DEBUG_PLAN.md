@@ -130,3 +130,10 @@ This will show which joints are still off and by how much.
 5. **FK** – confirm the frame 0 ONE is identity relative to new rest pose if needed.
 
 Once these steps are done, we should be able to reproduce the Blender A-pose at frame 0 and keep the rest of the mocap animation intact. Use this plan as a checklist for your troubleshooting sessions. Good luck!
+
+
+## Paris Questiosn
+
+1. Why are the little bone circle things different sizes? The knee bones are bigger than the spine bones. What's up with that? Not sure it actually means "scale" in blender tbh
+2. The knees are not level and I think that's an issue with the ground truth A pose you made
+3. look at way more data points and see what % of animations have clearly bad bone positions/rotations
