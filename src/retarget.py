@@ -421,22 +421,11 @@ def process_npz_file(
 
 
 def find_npz_files(folder_path: Path) -> List[Path]:
-    """
-    Recursively find all .npz files in a folder
-    
-    Args:
-        folder_path: Path to the folder to search
-        
-    Returns:
-        List of paths to .npz files
-    """
+    """ Recursively find all .npz files in a folder. """
     return sorted(folder_path.rglob("*.npz"))
 
 
 def main() -> None:
-    """Main entry point for batch processing"""
-    # Parse command-line arguments
-    # Blender passes arguments after "--" to the script
     argv = sys.argv
     if "--" in argv:
         argv = argv[argv.index("--") + 1:]
