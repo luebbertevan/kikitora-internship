@@ -412,19 +412,19 @@ def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 0.05, cub
 
 
 def process_npz_file(
-    npz_path: Path, 
-    json_pose_path: Optional[str] = None,
+    npz_path: Path,
     cube_size: float = 0.05,
-    cube_location: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    cube_location: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    frame_limit: Optional[int] = None
 ) -> None:
     """
     Process a single NPZ file and export to GLB
     
     Args:
         npz_path: Path to the NPZ file to process
-        json_pose_path: Optional path to JSON pose file to override frame 0 after baking
         cube_size: Size of the cube to add (default: 0.05)
         cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
+        frame_limit: Optional maximum number of frames to process from the NPZ
     """
     print(f"\n{'='*80}")
     print(f"Processing: {npz_path}")
@@ -446,6 +446,23 @@ def process_npz_file(
     data = np.load(str(npz_path))
     poses: NDArray[np.float64] = data['poses']
     trans: NDArray[np.float64] = data['trans']
+
+    total_frames: int = len(poses)
+
+    if frame_limit is not None:
+        if frame_limit <= 0:
+            raise ValueError(f"frame_limit must be a positive integer, got {frame_limit}")
+
+        frames_to_use = min(frame_limit, total_frames)
+        if frames_to_use < total_frames:
+            print(f"Frame limit applied: using first {frames_to_use} of {total_frames} frames")
+            poses = poses[:frames_to_use]
+            trans = trans[:frames_to_use]
+        else:
+            print(f"Frame limit ({frame_limit}) exceeds available frames; using all {total_frames}")
+
+    if len(poses) == 0:
+        raise ValueError(f"No frames available after applying frame limit for {npz_path}")
     
     # Get framerate (default to 60 if not present)
     framerate: float = float(data.get('mocap_framerate', 60))
@@ -456,7 +473,7 @@ def process_npz_file(
     
     # Compute joint positions for first frame to create armature - THIS IS CRITICAL!
     # Using actual frame 0 pose data instead of T-pose ensures correct bone orientations
-    joint_positions_frame0: NDArray[np.float64] = forward_kinematics(poses[0], trans[0])
+    joint_positions_frame0: NDArray[np.float64] = J_ABSOLUTE_APOSE #forward_kinematics(poses[0], trans[0]) 
     print("Using frame 0 pose (from FK) for armature creation")
     
     # M3: Align root to reference pelvis position
@@ -601,19 +618,19 @@ def process_npz_file(
                     track_constraint.track_axis = 'TRACK_NEGATIVE_Y'
                 else:
                     # Normal end bones (L_Foot and others)
-                    track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
+                    track_constraint = pose_bone.constraints.new('COPY_LOCATION')
                     track_constraint.target = empties[i]
                     track_constraint.name = "Track_Self"
-                    track_constraint.track_axis = 'TRACK_Y'
+                    #track_constraint.track_axis = 'TRACK_Y'
             
             # Regular bones with children
             else:
                 # Bone should point toward its first child without changing length
                 child_idx: int = children[0]
-                track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
-                track_constraint.target = empties[child_idx]
-                track_constraint.name = f"Track_To_Child_{child_idx}"
-                track_constraint.track_axis = 'TRACK_Y'
+                track_constraint = pose_bone.constraints.new('COPY_LOCATION')
+                track_constraint.target = empties[i]
+                track_constraint.name = f"Track_To_Child_{i}"
+               #track_constraint.track_axis = 'TRACK_Y'
     
     bpy.ops.object.mode_set(mode='OBJECT')
     
@@ -646,11 +663,6 @@ def process_npz_file(
     bpy.ops.object.mode_set(mode='OBJECT')
     
     print("Baking complete! All bones now have keyframes on every frame.")
-    
-    # Apply JSON pose to frame 0 if provided (overrides the baked frame 0 and A-pose)
-    if json_pose_path:
-        print("\nApplying JSON pose to frame 0 (overrides A-pose)...")
-        apply_json_pose_to_frame0(armature, json_pose_path)
     
     # Delete empties after baking (no longer needed)
     print("Removing empties...")
@@ -735,6 +747,12 @@ def main() -> None:
         type=int,
         default=None,
         help="Limit the number of files to process (for testing)"
+    )
+    parser.add_argument(
+        "--frame-limit",
+        type=int,
+        default=None,
+        help="Limit the number of frames processed from each NPZ (must be > 0)"
     )
     parser.add_argument(
         "--cube-size",
@@ -869,9 +887,9 @@ def main() -> None:
         try:
             process_npz_file(
                 npz_file, 
-                args.json_pose,
                 args.cube_size,
-                tuple(args.cube_location)
+                tuple(args.cube_location),
+                args.frame_limit
             )
             print(f"✓ Successfully processed {npz_file.name}")
         except Exception as e:
