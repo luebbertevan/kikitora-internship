@@ -1,15 +1,14 @@
 import bpy
 import numpy as np
-import json
 import sys
 import argparse
 from pathlib import Path
 from typing import Optional, List
-from mathutils import Vector, Matrix, Euler, Quaternion
+from mathutils import Vector
 from numpy.typing import NDArray
 
 
-# SMPL+H kinematic tree - EXACT SAME AS MATPLOTLIB
+# SMPL+H kinematic tree
 SMPL_H_PARENTS: NDArray[np.int32] = np.array([
     -1, 0, 0, 0, 1, 2, 3, 4, 5, 6,
     7, 8, 9, 9, 9, 12, 13, 14, 16, 17,
@@ -19,7 +18,7 @@ SMPL_H_PARENTS: NDArray[np.int32] = np.array([
     49, 50,
 ], dtype=np.int32)
 
-# Joint names - Original correct names
+# Joint names
 JOINT_NAMES: List[str] = [
     "Pelvis", "L_Hip", "R_Hip", "Spine1", "L_Knee", "R_Knee", "Spine2", 
     "L_Ankle", "R_Ankle", "Spine3", "L_Foot", "R_Foot", "Neck", 
@@ -69,21 +68,8 @@ for i in range(52):
         SMPL_OFFSETS[i] = J_ABSOLUTE[i] - J_ABSOLUTE[parent_idx]
 
 
-# Reference A-pose joint positions exported from Blender (world space)
-APOSE_PATH = Path(__file__).parent.parent / 'data' / 'reference' / 'apose_from_blender.npz'
-if not APOSE_PATH.exists():
-    raise FileNotFoundError(
-        f"A-pose NPZ not found: {APOSE_PATH}.\n"
-        "Export it from Blender with src/utils/reference/export_apose_from_blender.py"
-    )
-
-APOSE_DATA = np.load(str(APOSE_PATH))
-J_ABSOLUTE_APOSE: NDArray[np.float64] = APOSE_DATA['J_ABSOLUTE']
-
-print("=== A-pose J_ABSOLUTE (from Blender) ===")
-for idx, joint_name in enumerate(JOINT_NAMES):
-    coords = J_ABSOLUTE_APOSE[idx]
-    print(f"{idx:02d} {joint_name:15s}: {coords}")
+# Reference A-pose joint positions (loaded at runtime)
+APOSE_PATH_DEFAULT = Path(__file__).parent / 'A-Pose.npz'
 
 
 def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -105,116 +91,14 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     R: NDArray[np.float64] = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
     return R
 
-def load_reference_pelvis() -> Optional[NDArray[np.float64]]:
+def load_reference_pelvis(j_absolute_apose: NDArray[np.float64]) -> Optional[NDArray[np.float64]]:
     """
     Load reference pelvis position from A-pose NPZ (for frame 0 alignment).
     
     Returns:
         A-pose pelvis position as (3,) array, or None if not found
     """
-    return J_ABSOLUTE_APOSE[0].copy()
-
-
-def compute_rotation_between_vectors(
-    vec_from: NDArray[np.float64],
-    vec_to: NDArray[np.float64]
-) -> Quaternion:
-    """
-    Compute rotation quaternion that transforms vec_from to vec_to.
-    
-    Args:
-        vec_from: Source direction vector (normalized)
-        vec_to: Target direction vector (normalized)
-        
-    Returns:
-        Quaternion rotation
-    """
-    # Normalize vectors
-    vec_from_norm = vec_from / np.linalg.norm(vec_from)
-    vec_to_norm = vec_to / np.linalg.norm(vec_to)
-    
-    # Handle parallel vectors
-    dot = np.dot(vec_from_norm, vec_to_norm)
-    if abs(dot - 1.0) < 1e-6:
-        # Vectors are parallel, no rotation needed
-        return Quaternion((1.0, 0.0, 0.0, 0.0))
-    elif abs(dot + 1.0) < 1e-6:
-        # Vectors are opposite, use 180° rotation around perpendicular axis
-        # Find a perpendicular vector
-        if abs(vec_from_norm[0]) < 0.9:
-            perp = np.cross(vec_from_norm, np.array([1.0, 0.0, 0.0]))
-        else:
-            perp = np.cross(vec_from_norm, np.array([0.0, 1.0, 0.0]))
-        perp = perp / np.linalg.norm(perp)
-        return Quaternion((0.0, perp[0], perp[1], perp[2]))
-    
-    # Compute rotation axis and angle
-    axis = np.cross(vec_from_norm, vec_to_norm)
-    axis = axis / np.linalg.norm(axis)
-    angle = np.arccos(np.clip(dot, -1.0, 1.0))
-    
-    # Convert to quaternion
-    quat = Quaternion(axis, angle)
-    return quat
-
-
-def compute_apose_rotations_from_j_absolute(
-    tpose_j_absolute: NDArray[np.float64],
-    apose_j_absolute: NDArray[np.float64]
-) -> List[Optional[Quaternion]]:
-    """
-    Compute rotations needed to transform from T-pose to A-pose for each bone.
-    
-    For each bone, computes the rotation that transforms the bone's direction
-    vector from T-pose to A-pose.
-    
-    Args:
-        tpose_j_absolute: T-pose joint positions (52, 3)
-        apose_j_absolute: A-pose joint positions (52, 3)
-        
-    Returns:
-        List of 52 quaternions (None for root bone, rotation quaternion for others)
-    """
-    rotations: List[Optional[Quaternion]] = [None] * 52
-    
-    for i in range(52):
-        parent_idx = int(SMPL_H_PARENTS[i])
-        
-        if parent_idx == -1:
-            # Root bone (Pelvis) - no rotation, only translation
-            rotations[i] = None
-        else:
-            # Compute bone direction vectors
-            tpose_dir = tpose_j_absolute[i] - tpose_j_absolute[parent_idx]
-            apose_dir = apose_j_absolute[i] - apose_j_absolute[parent_idx]
-            
-            # Skip zero-length bones
-            if np.linalg.norm(tpose_dir) < 1e-6 or np.linalg.norm(apose_dir) < 1e-6:
-                rotations[i] = Quaternion((1.0, 0.0, 0.0, 0.0))
-                continue
-            
-            # Compute rotation from T-pose to A-pose direction
-            rotations[i] = compute_rotation_between_vectors(tpose_dir, apose_dir)
-    
-    return rotations
-
-
-def load_apose_rotations() -> Optional[dict]:
-    """
-    Load pre-baked A-pose bone rotations from NPZ file.
-    
-    Returns:
-        Dictionary mapping bone names to quaternion arrays [w, x, y, z],
-        or None if file not found
-    """
-    apose_rotations_path = Path(__file__).parent.parent / 'data' / 'reference' / 'apose_rotations.npz'
-    
-    if not apose_rotations_path.exists():
-        return None
-    
-    data = np.load(str(apose_rotations_path))
-    rotations = {key: data[key] for key in data.files}
-    return rotations
+    return j_absolute_apose[0].copy()
 
 
 def align_root_to_reference(
@@ -284,93 +168,6 @@ def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -
     return joint_positions
 
 
-def apply_json_pose_to_frame0(armature: bpy.types.Object, json_filepath: str) -> None:
-    """
-    Load pose from JSON and apply it to frame 0 of the armature using world-space matrices
-    
-    Args:
-        armature: The armature object
-        json_filepath: Path to the JSON file with pose data
-    """
-    print(f"Loading pose from: {json_filepath}")
-    
-    try:
-        with open(json_filepath, 'r') as f:
-            pose_data = json.load(f)
-    except FileNotFoundError:
-        print(f"Warning: JSON file not found at {json_filepath}. Skipping frame 0 pose override.")
-        return
-    
-    # Set to frame 0
-    bpy.context.scene.frame_set(0)
-    
-    # Switch to pose mode
-    bpy.context.view_layer.objects.active = armature
-    bpy.ops.object.mode_set(mode='POSE')
-    
-    bones_data = pose_data.get('bones', {})
-    
-    if not bones_data:
-        print("Warning: No bones data found in JSON file.")
-        bpy.ops.object.mode_set(mode='OBJECT')
-        return
-    
-    bones_applied = 0
-    # Apply pose using world-space matrix for accurate positioning
-    for bone_name, bone_info in bones_data.items():
-        pose_bone = armature.pose.bones.get(bone_name)
-        
-        if pose_bone and 'pose' in bone_info:
-            pose_info = bone_info['pose']
-            
-            # Use matrix_world if available (most accurate)
-            if 'matrix_world' in pose_info:
-                # Convert list to Matrix
-                matrix_data = pose_info['matrix_world']
-                target_matrix: Matrix = Matrix([
-                    matrix_data[0],
-                    matrix_data[1],
-                    matrix_data[2],
-                    matrix_data[3]
-                ])
-                
-                # Set the pose bone's matrix directly
-                pose_bone.matrix = target_matrix
-                bones_applied += 1
-                
-            else:
-                # Fallback to local transforms if matrix_world not available
-                if 'location' in pose_info:
-                    pose_bone.location = Vector(pose_info['location'])
-                
-                if 'rotation_quaternion' in pose_info:
-                    pose_bone.rotation_mode = 'QUATERNION'
-                    pose_bone.rotation_quaternion = Quaternion(pose_info['rotation_quaternion'])
-                elif 'rotation_euler' in pose_info:
-                    rotation_mode = pose_info.get('rotation_mode', 'XYZ')
-                    pose_bone.rotation_mode = rotation_mode
-                    pose_bone.rotation_euler = Euler(pose_info['rotation_euler'], rotation_mode)
-                
-                bones_applied += 1
-            
-            # Force update
-            bpy.context.view_layer.update()
-            
-            # Keyframe the result - use visual keying to capture final transform
-            pose_bone.keyframe_insert(data_path="location", frame=0, options={'INSERTKEY_VISUAL'})
-            
-            # Keyframe rotation in whatever mode the bone is in
-            if pose_bone.rotation_mode == 'QUATERNION':
-                pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=0, options={'INSERTKEY_VISUAL'})
-            else:
-                pose_bone.keyframe_insert(data_path="rotation_euler", frame=0, options={'INSERTKEY_VISUAL'})
-    
-    bpy.ops.object.mode_set(mode='OBJECT')
-    print(f"JSON pose applied to frame 0! ({bones_applied} bones updated)")
-
-
-
-
 def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 0.05, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
     """
     Add a cube mesh and parent it to the armature
@@ -415,7 +212,8 @@ def process_npz_file(
     npz_path: Path,
     cube_size: float = 0.05,
     cube_location: tuple[float, float, float] = (0.0, 0.0, 0.0),
-    frame_limit: Optional[int] = None
+    frame_limit: Optional[int] = None,
+    j_absolute_apose: Optional[NDArray[np.float64]] = None
 ) -> None:
     """
     Process a single NPZ file and export to GLB
@@ -471,13 +269,14 @@ def process_npz_file(
     print(f"Poses shape: {poses.shape}")
     print(f"Trans shape: {trans.shape}")
     
-    # Compute joint positions for first frame to create armature - THIS IS CRITICAL!
-    # Using actual frame 0 pose data instead of T-pose ensures correct bone orientations
-    joint_positions_frame0: NDArray[np.float64] = J_ABSOLUTE_APOSE #forward_kinematics(poses[0], trans[0]) 
+    if j_absolute_apose is None:
+        raise ValueError("A-pose joint positions were not provided to process_npz_file")
+
+    joint_positions_frame0: NDArray[np.float64] = j_absolute_apose  # forward_kinematics(poses[0], trans[0])
     print("Using frame 0 pose (from FK) for armature creation")
     
-    # M3: Align root to reference pelvis position
-    reference_pelvis = load_reference_pelvis()
+    # Align root to reference pelvis position
+    reference_pelvis = load_reference_pelvis(j_absolute_apose)
     if reference_pelvis is not None:
         joint_positions_frame0 = align_root_to_reference(joint_positions_frame0, reference_pelvis)
         print(f"✓ Aligned root to reference pelvis: {reference_pelvis}")
@@ -542,7 +341,7 @@ def process_npz_file(
     # Frame 0: keyframe Blender A-pose world positions directly
     bpy.context.scene.frame_set(0)
     for i, empty in enumerate(empties):
-        empty.location = Vector(J_ABSOLUTE_APOSE[i])
+        empty.location = Vector(j_absolute_apose[i])
         empty.keyframe_insert(data_path="location", frame=0)
 
     # Animate empties using computed forward kinematics for remaining frames
@@ -709,17 +508,6 @@ def main() -> None:
         help="Path to folder containing NPZ files (will search recursively)"
     )
     parser.add_argument(
-        "--export-target-apose",
-        action="store_true",
-        help="Export a single-frame GLB from target_reference.npz (A-pose) and exit"
-    )
-    parser.add_argument(
-        "--json-pose",
-        type=str,
-        default=None,
-        help="Optional path to JSON pose file to override frame 0 after baking"
-    )
-    parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -730,6 +518,17 @@ def main() -> None:
         type=int,
         default=None,
         help="Limit the number of frames processed from each NPZ (must be > 0)"
+    )
+    parser.add_argument(
+        "--export-target-apose",
+        action="store_true",
+        help="Export the target A-pose armature to GLB and exit"
+    )
+    parser.add_argument(
+        "--apose-path",
+        type=str,
+        default=None,
+        help="Path to A-pose NPZ (defaults to A-Pose.npz next to retarget.py)"
     )
     parser.add_argument(
         "--cube-size",
@@ -754,6 +553,24 @@ def main() -> None:
     
     args = parser.parse_args(argv)
     
+    # Determine A-pose NPZ path and load data once
+    if args.apose_path:
+        apose_path = Path(args.apose_path)
+    else:
+        apose_path = APOSE_PATH_DEFAULT
+
+    if not apose_path.exists():
+        print(f"Error: A-pose NPZ not found at {apose_path}")
+        print("Place A-Pose.npz next to retarget.py or specify --apose-path <file>")
+        sys.exit(1)
+
+    apose_data = np.load(str(apose_path))
+    if 'J_ABSOLUTE' not in apose_data:
+        print(f"Error: {apose_path} missing 'J_ABSOLUTE'")
+        sys.exit(1)
+    J_absolute_apose = apose_data['J_ABSOLUTE']
+    print(f"Loaded A-pose from {apose_path}")
+
     # Handle A-pose export mode early
     if args.export_target_apose:
         out_dir = Path(args.output) if args.output else None
@@ -863,10 +680,11 @@ def main() -> None:
         print(f"\n[{idx}/{len(npz_files)}] Processing: {npz_file.name}")
         try:
             process_npz_file(
-                npz_file, 
+                npz_file,
                 args.cube_size,
                 tuple(args.cube_location),
-                args.frame_limit
+                args.frame_limit,
+                J_absolute_apose
             )
             print(f"✓ Successfully processed {npz_file.name}")
         except Exception as e:
