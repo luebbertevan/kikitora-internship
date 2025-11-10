@@ -137,3 +137,5 @@ Once these steps are done, we should be able to reproduce the Blender A-pose at 
 1. Why are the little bone circle things different sizes? The knee bones are bigger than the spine bones. What's up with that? Not sure it actually means "scale" in blender tbh
 2. The knees are not level and I think that's an issue with the ground truth A pose you made
 3. look at way more data points and see what % of animations have clearly bad bone positions/rotations
+
+frame limit is not a direct translation to blender because of the fps translation
