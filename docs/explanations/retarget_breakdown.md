@@ -17,6 +17,7 @@
 -   axis_angle_to_rotation_matrix(axis_angle)
 -   load_reference_pelvis()
 -   align_root_to_reference(joint_positions, reference_pelvis)
+		why does this Handle both single frame and multi-frame inputs?
 -   forward_kinematics(poses, trans)
 -   add_cube_and_parent(armature, cube_size, cube_location)
 -   process_npz_file(npz_path, cube_size, cube_location, frame_limit)
@@ -26,3 +27,13 @@
 ## CLI Flags
 
 -   --frame-limit, --cube-size, --cube-location, --limit, --output, --export-target-apose, --apose-path
+
+
+
+blendre scene clean up bug
+file batchig bug
+bone scaling bug
+added flags
+use a pose j_absolutes for frame 0
+use a pose for the empties
+change constraint solver to use copy location

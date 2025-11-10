@@ -8,7 +8,7 @@ from mathutils import Vector
 from numpy.typing import NDArray
 
 
-# SMPL+H kinematic tree
+# SMPL+H joint hierarchy (parent indices)
 SMPL_H_PARENTS: NDArray[np.int32] = np.array([
     -1, 0, 0, 0, 1, 2, 3, 4, 5, 6,
     7, 8, 9, 9, 9, 12, 13, 14, 16, 17,
@@ -18,7 +18,7 @@ SMPL_H_PARENTS: NDArray[np.int32] = np.array([
     49, 50,
 ], dtype=np.int32)
 
-# Joint names
+# Joint names (52 entries)
 JOINT_NAMES: List[str] = [
     "Pelvis", "L_Hip", "R_Hip", "Spine1", "L_Knee", "R_Knee", "Spine2", 
     "L_Ankle", "R_Ankle", "Spine3", "L_Foot", "R_Foot", "Neck", 
@@ -26,7 +26,7 @@ JOINT_NAMES: List[str] = [
     "L_Elbow", "R_Elbow", "L_Wrist", "R_Wrist"
 ] + [f"L_Hand_{i}" for i in range(15)] + [f"R_Hand_{i}" for i in range(15)]
 
-# T-pose J_ABSOLUTE - used for SMPL_OFFSETS (bone lengths for FK)
+# T-pose joint positions from the original SMPL-H template
 # Mocap rotations are relative to T-pose, so we need T-pose bone directions for FK
 J_ABSOLUTE: NDArray[np.float64] = np.array([
     [-0.001795, -0.223333, 0.028219], [0.067725, -0.314740, 0.021404],
@@ -73,7 +73,7 @@ APOSE_PATH_DEFAULT = Path(__file__).parent / 'A-Pose.npz'
 
 
 def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Convert axis-angle to rotation matrix using Rodrigues' formula"""
+    """Convert an axis-angle vector to a rotation matrix via Rodrigues' formula."""
     angle: float = np.linalg.norm(axis_angle)
     if angle < 1e-6:
         return np.eye(3)
@@ -92,12 +92,7 @@ def axis_angle_to_rotation_matrix(axis_angle: NDArray[np.float64]) -> NDArray[np
     return R
 
 def load_reference_pelvis(j_absolute_apose: NDArray[np.float64]) -> Optional[NDArray[np.float64]]:
-    """
-    Load reference pelvis position from A-pose NPZ (for frame 0 alignment).
-    
-    Returns:
-        A-pose pelvis position as (3,) array, or None if not found
-    """
+    """Return the pelvis position from the A-pose array."""
     return j_absolute_apose[0].copy()
 
 
@@ -105,20 +100,8 @@ def align_root_to_reference(
     joint_positions: NDArray[np.float64],
     reference_pelvis: NDArray[np.float64]
 ) -> NDArray[np.float64]:
-    """
-    Align animation root (pelvis) to reference position.
-    
-    Applies translation offset to all joints to align frame 0 pelvis
-    with the reference pelvis position. Preserves relative motion.
-    
-    Args:
-        joint_positions: (num_frames, 52, 3) or (52, 3) - joint positions
-        reference_pelvis: (3,) - target pelvis position
-    
-    Returns:
-        aligned_joints: Same shape as input - aligned joint positions
-    """
-    # Handle both single frame and multi-frame inputs
+    """Translate joints so the pelvis matches the reference position."""
+    # Handle both single-frame and multi-frame inputs
     if joint_positions.ndim == 2:
         # Single frame: (52, 3)
         frame0_pelvis = joint_positions[0, :]  # Pelvis is index 0
@@ -132,7 +115,7 @@ def align_root_to_reference(
 
 
 def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -> NDArray[np.float64]:
-    """EXACT SAME FUNCTION AS MATPLOTLIB SCRIPT"""
+    """Reconstruct joint positions from axis-angle rotations and T-pose offsets."""
     num_joints: int = len(SMPL_H_PARENTS)
     joint_positions: NDArray[np.float64] = np.zeros((num_joints, 3))
     
@@ -168,36 +151,25 @@ def forward_kinematics(poses: NDArray[np.float64], trans: NDArray[np.float64]) -
     return joint_positions
 
 
-def add_cube_and_parent(armature: bpy.types.Object, cube_size: float = 0.05, cube_location: tuple[float, float, float] = (0, 0, 0)) -> bpy.types.Object:
-    """
-    Add a cube mesh and parent it to the armature
-    
-    Args:
-        armature: The armature object to parent the cube to
-        cube_size: Size of the cube (default: 0.05)
-        cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
-        
-    Returns:
-        The created cube object
-    """
-    # Add cube mesh
+def add_cube_and_parent(
+    armature: bpy.types.Object,
+    cube_size: float = 0.05,
+    cube_location: tuple[float, float, float] = (0, 0, 0)
+) -> bpy.types.Object:
+    """Create a cube, parent it to the armature, and return the cube."""
     bpy.ops.mesh.primitive_cube_add(
         size=cube_size,
         location=cube_location
     )
     
-    # Get the cube object (it's selected after creation)
     cube: bpy.types.Object = bpy.context.active_object
     cube.name = "ParentedCube"
     
-    # Clear selection
     bpy.ops.object.select_all(action='DESELECT')
     
-    # Select cube and armature
     cube.select_set(True)
     armature.select_set(True)
     
-    # Set armature as active
     bpy.context.view_layer.objects.active = armature
     
     # Parent cube to armature
@@ -215,20 +187,11 @@ def process_npz_file(
     frame_limit: Optional[int] = None,
     j_absolute_apose: Optional[NDArray[np.float64]] = None
 ) -> None:
-    """
-    Process a single NPZ file and export to GLB
-    
-    Args:
-        npz_path: Path to the NPZ file to process
-        cube_size: Size of the cube to add (default: 0.05)
-        cube_location: Location of the cube as (X, Y, Z) coordinates (default: (0, 0, 0))
-        frame_limit: Optional maximum number of frames to process from the NPZ
-    """
+    """Retarget one NPZ file and export the resulting GLB."""
     print(f"\n{'='*80}")
     print(f"Processing: {npz_path}")
     print(f"{'='*80}")
     
-    # Clear existing objects
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.object.delete()
     
@@ -297,18 +260,13 @@ def process_npz_file(
     for i in range(52):
         bone = edit_bones.new(JOINT_NAMES[i] if i < len(JOINT_NAMES) else f"Joint_{i}")
         bone.head = Vector(joint_positions_frame0[i])
-        
+
         # Set tail pointing toward first child or slightly offset
-        children: List[int] = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
-        if children:
-            # Special case for pelvis (has 3 children: L_Hip, R_Hip, Spine1)
-            if i == 0:
-                # Point pelvis upward toward spine
-                bone.tail = Vector(joint_positions_frame0[3])  # Spine1
-            else:
-                bone.tail = Vector(joint_positions_frame0[children[0]])
+        child_indices: List[int] = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
+        if child_indices:
+            target_idx = 3 if i == 0 else child_indices[0]
+            bone.tail = Vector(joint_positions_frame0[target_idx])
         else:
-            # End bones - point in a sensible direction
             bone.tail = Vector(joint_positions_frame0[i]) + Vector((0, 0.05, 0))
         
         bone_list.append(bone)
@@ -319,10 +277,8 @@ def process_npz_file(
         if parent_idx != -1:
             bone_list[i].parent = bone_list[parent_idx]
     
-    # Switch to object mode
     bpy.ops.object.mode_set(mode='OBJECT')
     
-    # Set frame range
     bpy.context.scene.frame_start = 0
     bpy.context.scene.frame_end = len(poses) - 1
     bpy.context.scene.render.fps = int(framerate)
@@ -345,9 +301,9 @@ def process_npz_file(
         empty.keyframe_insert(data_path="location", frame=0)
 
     # Animate empties using computed forward kinematics for remaining frames
-    frame_skip: int = 1  # Keyframe every frame
+    keyframe_step: int = 1  # Keyframe every frame
     print("Processing frames 1..N with forward kinematics (frame 0 uses Blender A-pose)...")
-    for frame_idx in range(1, len(poses), frame_skip):
+    for frame_idx in range(1, len(poses), keyframe_step):
         bpy.context.scene.frame_set(frame_idx)
         
         # Compute joint positions using EXACT SAME forward kinematics
@@ -363,7 +319,6 @@ def process_npz_file(
     
     print("Empties animation complete!")
     
-    # Now add constraints to make armature track the empties
     print("Adding constraints to armature...")
     
     bpy.context.view_layer.objects.active = armature
@@ -377,53 +332,44 @@ def process_npz_file(
         pose_bone = pose_bones.get(joint_name)
         
         if pose_bone:
-            # Find children
-            children = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
-            
+            child_indices = [j for j in range(52) if SMPL_H_PARENTS[j] == i]
+
             # Root bone (Pelvis) - special handling
             if i == 0:
-                # Copy location
                 constraint = pose_bone.constraints.new('COPY_LOCATION')
                 constraint.target = empties[i]
                 constraint.name = "Track_Root_Location"
                 
-                # Aim pelvis toward Spine1 without stretching
                 track_constraint = pose_bone.constraints.new('DAMPED_TRACK')
                 track_constraint.target = empties[3]  # Spine1
                 track_constraint.name = "Track_To_Spine1"
                 track_constraint.track_axis = 'TRACK_Y'
             
-            # End bones (no children) - for now we only care about head position
-            elif len(children) == 0:
+            elif len(child_indices) == 0:
                 track_constraint = pose_bone.constraints.new('COPY_LOCATION')
                 track_constraint.target = empties[i]
                 track_constraint.name = "Track_End_Location"
             
-            # Regular bones with children
             else:
-                # Bone should point toward its first child without changing length
-                child_idx: int = children[0]
+                child_idx: int = child_indices[0]
                 track_constraint = pose_bone.constraints.new('COPY_LOCATION')
                 track_constraint.target = empties[i]
                 track_constraint.name = f"Track_To_Child_{i}"
-               #track_constraint.track_axis = 'TRACK_Y'
     
     bpy.ops.object.mode_set(mode='OBJECT')
     
     print("Armature constraints added!")
     
-    # Bake constraints to keyframes on the armature
     print("Baking constraints to keyframes on armature bones...")
     
     bpy.context.view_layer.objects.active = armature
     armature.select_set(True)
     bpy.ops.object.mode_set(mode='POSE')
     
-    # Select all bones
     for bone in armature.pose.bones:
         bone.bone.select = True
     
-    # Bake the animation
+
     bpy.ops.nla.bake(
         frame_start=0,
         frame_end=len(poses) - 1,
@@ -440,14 +386,12 @@ def process_npz_file(
     
     print("Baking complete! All bones now have keyframes on every frame.")
     
-    # Delete empties after baking (no longer needed)
     print("Removing empties...")
     for empty in empties:
         bpy.data.objects.remove(empty, do_unlink=True)
     
     print("Empties removed. Ready for export.")
     
-    # Add cube (always required for pipeline)
     cube: bpy.types.Object = add_cube_and_parent(armature, cube_size, cube_location)
     
     # Export to GLB with "retargeted" in filename
