@@ -137,5 +137,38 @@ This license also prohibits the use of the Software to train methods/algorithms/
 
 
 
-Are you going to ask you partners for their motion capture data to train on?
 
+Check-in questions.
+
+What would be most useful to you in the write up?
+
+contraints
+solutions
+trade-offs
+future improvements
+
+how are we retargeting to a consitant skeleton
+a-pose script. blend to npz and npz to pose 0
+
+the robot problem (data ) 
+one use (roomba)
+multi use (multipul steps) robot dag assembly line
+helper bots. only good at a couple of things and not reliable
+
+need lots of data (internet scale data) we almost have that for video -> we dont have that for 4D motion capture 
+athletinc recrutment
+medical interventions
+brodcasting
+
+
+Why has no one done this yet?
+not enough expertise and crossover in computer vission adn animation and ml
+
+focal length
+
+Could I get a list of you partners?
+
+Are you going to ask you partners for their motion capture data to train on?
+no liscensing and unions 
+
+saving 6 months dev time on AAA
