@@ -139,3 +139,5 @@ Once these steps are done, we should be able to reproduce the Blender A-pose at 
 3. look at way more data points and see what % of animations have clearly bad bone positions/rotations
 
 frame limit is not a direct translation to blender because of the fps translation
+
+
