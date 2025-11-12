@@ -63,8 +63,9 @@
 ### Running `export_apose_from_blender.py`
 
 -   Input: a `.blend` file whose armature pose has been applied to the rest pose.
--   The script samples each bone’s world-space head position and saves them under `J_ABSOLUTE` in the output NPZ; use that file with `retarget.py --apose-path`.
--   Example 1: `blender AposeRig.blend --background --python export_apose_from_blender.py -- data/reference/A-Pose.npz`
+-   The script samples each bone’s world-space head position and saves them under `J_ABSOLUTE` in the output NPZ (defaults to `A-Pose.npz` next to the script if no path is provided); use that file with `retarget.py --apose-path`.
+-   Example 1 (default output): `blender path/A-Pose.blend --background --python export_apose_from_blender.py --`
+-   Example 2 (custom output): `blender path/A-Pose.blend --background --python export_apose_from_blender.py -- data/reference/custom_A-Pose.npz`
 
 ## Outputs
 

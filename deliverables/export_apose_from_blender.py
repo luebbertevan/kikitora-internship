@@ -82,11 +82,18 @@ def main():
     )
     parser.add_argument(
         "output_npz",
+        nargs="?",
         type=Path,
-        help="Output NPZ file path (e.g., data/reference/apose_from_blender.npz)",
+        default=None,
+        help="Optional output NPZ path (defaults to A-Pose.npz next to this script).",
     )
-    args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
-    output_path = args.output_npz
+    cli_args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    parsed_args = parser.parse_args(cli_args)
+    if parsed_args.output_npz is None:
+        output_path = Path(__file__).parent / "A-Pose.npz"
+        print(f"No output path supplied; defaulting to {output_path}")
+    else:
+        output_path = parsed_args.output_npz
     
     print("="*80)
     print("Export A-Pose from Blender Armature")
